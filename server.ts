@@ -310,7 +310,6 @@ app.post('/api/analyze-statement', (req: Request, res: Response) => {
     let totalOutflow = 0;
     const catMap: Record<string, { count: number; total: number; direction: string }> = {};
     const counterpartyMap: Record<string, { count: number; total: number; direction: string }> = {};
-    const historyPoints: Array<{ date: string; balance: number; inflow: number; outflow: number }> = [];
 
     for (const op of sortedOps) {
       const { amount, isCredit, category, counterparty } = op;
@@ -334,13 +333,6 @@ app.post('/api/analyze-statement', (req: Request, res: Response) => {
       }
       counterpartyMap[counterparty].count += 1;
       counterpartyMap[counterparty].total += amount;
-
-      historyPoints.push({
-        date: op.date,
-        balance: Math.round(runningBal),
-        inflow: isCredit ? amount : 0,
-        outflow: isCredit ? 0 : amount
-      });
     }
 
     // Empirical forecast: replay analogous historical periods from today's balance (see shared/cashflow.ts)
@@ -375,6 +367,8 @@ app.post('/api/analyze-statement', (req: Request, res: Response) => {
       forecast_risk_level: riskLevel,
       forecast_status_label: statusLabel,
       opening_balance: Math.round(openingBalance),
+      period_start: sortedOps[0].date,
+      period_end: sortedOps[sortedOps.length - 1].date,
       total_operations: sortedOps.length,
       skipped_operations: skippedOperations,
       total_inflow: Math.round(totalInflow),
@@ -393,7 +387,13 @@ app.post('/api/analyze-statement', (req: Request, res: Response) => {
         count: data.count
       })).sort((a, b) => b.total - a.total).slice(0, 8),
       recurring_items: detectRecurring(sortedOps),
-      history: historyPoints.slice(-60),
+      // Daily end-of-day balance for the last 60 calendar days (one point per date for the chart axis)
+      history: days.slice(-60).map(d => ({
+        date: d.date,
+        balance: Math.round(d.eod),
+        inflow: Math.round(d.inflow),
+        outflow: Math.round(d.outflow)
+      })),
       forecast: futureDates,
       alerts,
       insights,

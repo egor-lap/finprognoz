@@ -32,7 +32,7 @@ import {
   FileText,
   AlertOctagon
 } from 'lucide-react';
-import { summarizePaths, buildGapAlerts } from '../shared/cashflow.ts';
+import { summarizePaths, buildGapAlerts, addDaysIso } from '../shared/cashflow.ts';
 import type { ForecastPoint, GapAlert, Insight } from '../shared/cashflow.ts';
 
 interface StatementData {
@@ -74,6 +74,8 @@ interface StatementData {
   forecast: ForecastPoint[];
   alerts: GapAlert[];
   insights?: Insight[];
+  period_start?: string;
+  period_end?: string;
   paths?: number[][];
   model?: { method: string; scenarios: number; gap_scenarios: number; horizon_days: number };
 }
@@ -95,6 +97,44 @@ interface FormatErrorDetail {
   detectedHeaders: string[];
   missingRequired: string[];
   rawPreview?: string;
+}
+
+const ruDate = (iso: string) => iso.slice(0, 10).split('-').reverse().join('.');
+const ruDayMonth = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
+
+// Date labels under an SVG chart drawn in viewBox 0..800 with data points from x=10 to x=790.
+// The 17px inset matches the chart container's p-4 padding plus its border.
+function DateAxis({ dates, ticks = 6 }: { dates: string[]; ticks?: number }) {
+  if (dates.length < 2) return null;
+  const count = Math.min(ticks, dates.length);
+  const idxs = [...new Set(Array.from({ length: count }, (_, k) => Math.round((k * (dates.length - 1)) / (count - 1))))];
+  return (
+    <div className="relative h-4 mx-[17px] text-[10px] text-slate-400 font-mono" aria-hidden="true">
+      {idxs.map(i => (
+        <span
+          key={i}
+          className="absolute -translate-x-1/2 whitespace-nowrap"
+          style={{ left: `${((10 + (i / (dates.length - 1)) * 780) / 800) * 100}%` }}
+        >
+          {ruDayMonth(dates[i])}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+// "Period: dd.mm.yyyy – dd.mm.yyyy" caption shown under every chart title
+function ChartPeriod({ from, to, note }: { from?: string; to?: string; note?: string }) {
+  if (!from || !to) return null;
+  return (
+    <p className="text-[11px] text-slate-400 mt-1 flex items-center gap-1.5">
+      <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+      <span>
+        Период: <span className="font-mono text-slate-300">{ruDate(from)} – {ruDate(to)}</span>
+        {note ? ` · ${note}` : ''}
+      </span>
+    </p>
+  );
 }
 
 export default function App() {
@@ -1070,8 +1110,15 @@ export default function App() {
                         Динамика остатка и фактических потоков по выписке
                       </h3>
                       <p className="text-xs text-slate-400 mt-1">
-                        История изменений баланса на конец каждого операционного дня
+                        История изменений баланса на конец каждого календарного дня
                       </p>
+                      {statementData?.history && statementData.history.length > 1 && (
+                        <ChartPeriod
+                          from={statementData.history[0].date}
+                          to={statementData.history[statementData.history.length - 1].date}
+                          note={`последние ${statementData.history.length} дн. выписки`}
+                        />
+                      )}
                     </div>
                     <div className="flex items-center gap-4 text-xs font-medium">
                       <div className="flex items-center gap-1.5">
@@ -1137,6 +1184,9 @@ export default function App() {
                       </div>
                     )}
                   </div>
+                  {statementData?.history && statementData.history.length > 1 && (
+                    <DateAxis dates={statementData.history.map(p => p.date)} ticks={7} />
+                  )}
                 </div>
 
                 {/* Categories & Payment Discipline Breakdown */}
@@ -1150,6 +1200,11 @@ export default function App() {
                     <p className="text-xs text-slate-400">
                       Автоматическая классификация операций выписки по статьям затрат и источникам выручки
                     </p>
+                    {statementData?.period_start ? (
+                      <ChartPeriod from={statementData.period_start} to={statementData.period_end} note="суммы за весь период выписки" />
+                    ) : (
+                      <p className="text-[11px] text-slate-500">Пример структуры: выписка ещё не загружена</p>
+                    )}
 
                     <div className="space-y-3 pt-2">
                       {(statementData?.categories && statementData.categories.length > 0
@@ -1196,6 +1251,13 @@ export default function App() {
                     <p className="text-xs text-slate-400">
                       Выявленные периодические пики оттока денежных средств компании
                     </p>
+                    {statementData?.period_end && (
+                      <ChartPeriod
+                        from={[statementData.period_start ?? '', addDaysIso(statementData.period_end, -183)].sort()[1]}
+                        to={statementData.period_end}
+                        note="типичный день и сумма — медиана по месяцам за последние 6 мес."
+                      />
+                    )}
 
                     <div className="space-y-3 pt-2">
                       {statementData?.recurring_items && statementData.recurring_items.length > 0 ? (
@@ -1311,6 +1373,17 @@ export default function App() {
                       <p className="text-xs text-slate-400 mt-1">
                         Квантильные траектории: медиана P50, стресс-сценарий P10 (вероятность 90% не опуститься ниже) и оптимистичный P90
                       </p>
+                      {effectiveForecast.length > 1 && (
+                        <ChartPeriod
+                          from={effectiveForecast[0].date}
+                          to={effectiveForecast[effectiveForecast.length - 1].date}
+                          note={
+                            statementData?.period_end
+                              ? `прогноз на ${effectiveForecast.length} дн. от остатка на ${ruDate(statementData.period_end)}`
+                              : `прогноз на ${effectiveForecast.length} дн.`
+                          }
+                        />
+                      )}
                     </div>
 
                     <div className="flex items-center gap-4 text-xs font-medium">
@@ -1400,6 +1473,7 @@ export default function App() {
                       );
                     })()}
                   </div>
+                  <DateAxis dates={effectiveForecast.map(p => p.date)} ticks={7} />
                 </div>
 
                 {/* Algorithmic Cash Gap Assessment Panel (Deficit, %, Cause, Prescriptions) */}
@@ -1738,10 +1812,19 @@ export default function App() {
                   {/* Chart of Simulated vs Baseline */}
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
-                      <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                        <TrendingUp className="w-4 h-4 text-indigo-400" />
-                        Сравнение: Базовый прогноз vs Смоделированный сценарий «Что если»
-                      </h3>
+                      <div>
+                        <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                          <TrendingUp className="w-4 h-4 text-indigo-400" />
+                          Сравнение: Базовый прогноз vs Смоделированный сценарий «Что если»
+                        </h3>
+                        {effectiveForecast.length > 1 && (
+                          <ChartPeriod
+                            from={effectiveForecast[0].date}
+                            to={effectiveForecast[effectiveForecast.length - 1].date}
+                            note="медианный остаток (P50) на конец каждого дня горизонта"
+                          />
+                        )}
+                      </div>
                       <div className="flex items-center gap-4 text-xs">
                         <div className="flex items-center gap-1.5">
                           <span className="w-3 h-0.5 bg-slate-400 stroke-dash"></span>
@@ -1806,6 +1889,7 @@ export default function App() {
                         );
                       })()}
                     </div>
+                    <DateAxis dates={effectiveForecast.map(p => p.date)} ticks={7} />
                   </div>
 
                   {/* Scenario Outcome Comparison Cards */}
