@@ -390,10 +390,12 @@ export function buildInsights(days: HistoryDay[], currentBalance: number, sim: S
       // Leave room to rebuild a two-week cash reserve within three months
       const reserveGap = Math.max(0, avgDailyOut * 14 - currentBalance);
       const limit = Math.max(0, netExOwner - reserveGap / 3);
+      // Same runway rule as the negative-trend insight: a warning only when the balance lasts less than 3 months
+      const monthsLeft = currentBalance > 0 ? currentBalance / (-net90 / months90) : 0;
       insights.push({
-        severity: 'WARNING',
+        severity: monthsLeft < 3 ? 'WARNING' : 'INFO',
         title: `Выводы владельца и переводы на свои счета (${formatRubExact(ownerPerMonth)}/мес) превышают свободный денежный поток`,
-        detail: `Без выводов на личный счёт бизнес генерирует ${formatRubExact(netExOwner)} в месяц, с ними поток отрицательный.`,
+        detail: `Без выводов на личный счёт бизнес генерирует ${formatRubExact(netExOwner)} в месяц, с ними поток отрицательный. При таком темпе текущего остатка хватит примерно на ${monthsLeft.toFixed(1)} мес.`,
         recommendation:
           `Ограничить вывод суммой до ${formatRubExact(limit)} в месяц` +
           (reserveGap > 0 ? ` (свободный поток минус ${formatRubExact(reserveGap / 3)} на пополнение резерва за 3 месяца)` : '') +

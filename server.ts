@@ -172,12 +172,14 @@ app.post('/api/analyze-statement', (req: Request, res: Response) => {
     const minP10 = Math.min(...futureDates.map(f => f.balance_p10));
     const maxGapProb = sim.gapProbabilityPct;
 
+    // The status reflects the forecast only; rule-based insights (owner withdrawals, cushion, past lows) are
+    // reported separately as remarks so they never read as a forecast gap risk
     let riskLevel: 'CRITICAL' | 'WARNING' | 'STABLE' = 'STABLE';
     let statusLabel = 'Стабильное состояние (В норме)';
     if (maxGapProb >= 50 || minP50 < 0) {
       riskLevel = 'CRITICAL';
       statusLabel = 'Критический кассовый разрыв';
-    } else if (maxGapProb >= 10 || minP10 < 0 || insights.some(i => i.severity !== 'INFO')) {
+    } else if (maxGapProb >= 10 || minP10 < 0) {
       riskLevel = 'WARNING';
       statusLabel = 'Повышенный риск кассового разрыва';
     }

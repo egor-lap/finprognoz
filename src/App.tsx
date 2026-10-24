@@ -104,6 +104,23 @@ interface FormatErrorDetail {
 const ruDate = (iso: string) => iso.slice(0, 10).split('-').reverse().join('.');
 const ruDayMonth = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
 
+// Rule-based remarks about cash habits, shown next to the forecast status (not part of it)
+function RemarksBadge({ count, critical, onOpen }: { count: number; critical: boolean; onOpen: () => void }) {
+  const word = count % 10 === 1 && count % 100 !== 11 ? 'замечание' : [2, 3, 4].includes(count % 10) && ![12, 13, 14].includes(count % 100) ? 'замечания' : 'замечаний';
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title="Правила по истории выписки: выводы владельца, подушка ликвидности, прошлые просадки. На статус прогноза не влияют."
+      className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-slate-800 hover:bg-slate-700 border ${
+        critical ? 'text-rose-300 border-rose-500/50' : 'text-amber-300 border-amber-500/40'
+      }`}
+    >
+      {count} {word} по денежному потоку
+    </button>
+  );
+}
+
 // "Period: dd.mm.yyyy – dd.mm.yyyy" caption shown under every chart title
 function ChartPeriod({ from, to, note }: { from?: string; to?: string; note?: string }) {
   if (!from || !to) return null;
@@ -121,6 +138,10 @@ function ChartPeriod({ from, to, note }: { from?: string; to?: string; note?: st
 export default function App() {
   // Navigation: 3 workflow columns
   const [activeTab, setActiveTab] = useState<'flows' | 'forecast' | 'whatif'>('flows');
+  const openRemarks = () => {
+    setActiveTab('forecast');
+    setTimeout(() => document.getElementById('cash-remarks')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  };
 
   // Core State: Starts completely empty waiting for entrepreneur's file or manual entry
   const [statementData, setStatementData] = useState<StatementData | null>(null);
@@ -447,7 +468,9 @@ export default function App() {
           totalOutflow: 0,
           netFlow: 0,
           riskLevel: 'STABLE' as 'CRITICAL' | 'WARNING' | 'STABLE',
-          statusLabel: 'Нет данных'
+          statusLabel: 'Нет данных',
+          remarks: 0,
+          criticalRemarks: false
         }
       };
     }
@@ -564,14 +587,16 @@ export default function App() {
     const minP10 = updatedForecast.length > 0 ? Math.min(...updatedForecast.map(f => f.balance_p10)) : 0;
     // Probability that the balance drops below the buffer on any day of the horizon
     const maxGapProb = updatedForecast.length > 0 ? dist.overallGapProb : 0;
-    const hasRiskInsights = (statementData?.insights ?? []).some(i => i.severity !== 'INFO');
+    // Rule-based remarks (owner withdrawals, thin cushion, past lows) are shown next to the status, not in it
+    const remarks = (statementData?.insights ?? []).filter(i => i.severity !== 'INFO').length;
+    const criticalRemarks = (statementData?.insights ?? []).some(i => i.severity === 'CRITICAL');
 
     let riskLevel: 'CRITICAL' | 'WARNING' | 'STABLE' = 'STABLE';
     let statusLabel = 'Стабильное состояние (В норме)';
     if (maxGapProb >= 50 || minP50 < safetyBuffer) {
       riskLevel = 'CRITICAL';
       statusLabel = 'Критический кассовый разрыв';
-    } else if (maxGapProb >= 10 || minP10 < safetyBuffer || hasRiskInsights) {
+    } else if (maxGapProb >= 10 || minP10 < safetyBuffer) {
       riskLevel = 'WARNING';
       statusLabel = 'Повышенный риск кассового разрыва';
     }
@@ -592,7 +617,9 @@ export default function App() {
         totalOutflow: Math.round(totalSimOutflow),
         netFlow: Math.round(totalSimInflow - totalSimOutflow),
         riskLevel,
-        statusLabel
+        statusLabel,
+        remarks,
+        criticalRemarks
       }
     };
   }, [
@@ -742,6 +769,7 @@ export default function App() {
                 >
                   {summaryStats.statusLabel}
                 </span>
+                {summaryStats.remarks > 0 && <RemarksBadge count={summaryStats.remarks} critical={summaryStats.criticalRemarks} onOpen={openRemarks} />}
               </div>
             )}
           </div>
@@ -1304,6 +1332,7 @@ export default function App() {
                       <span>
                         {statementFileName || statementData?.company_id || 'Компания'}: {summaryStats.statusLabel}
                       </span>
+                      {summaryStats.remarks > 0 && <RemarksBadge count={summaryStats.remarks} critical={summaryStats.criticalRemarks} onOpen={openRemarks} />}
                     </div>
                     <p className="text-xs text-slate-300 max-w-3xl leading-relaxed">
                       Квантильный прогноз на 30 дней вперед с учетом периодических обязательств (ЕНП 28-го, аванс 25-го, расчет 10-го)
@@ -1525,7 +1554,7 @@ export default function App() {
 
                   {/* Liquidity diagnostics that apply even when no specific gap day is forecast */}
                   {statementData?.insights && statementData.insights.length > 0 && (
-                    <div className="space-y-3 pt-2">
+                    <div id="cash-remarks" className="space-y-3 pt-2 scroll-mt-24">
                       <div className="text-[11px] font-bold uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
                         <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
                         Диагностика ликвидности и рекомендации
