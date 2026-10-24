@@ -18,7 +18,7 @@ const PORT = process.env.PORT || 3000;
 // --production lets 'npm start' run in production mode on any OS without setting NODE_ENV
 const IS_PROD = process.env.NODE_ENV === 'production' || process.argv.includes('--production');
 
-// Server-only data artifacts. Not under public/, so they are never served as static files.
+// Server-only data (demo statement). Not under public/, so it is never served as a static file.
 const DATA_DIR = path.join(__dirname, 'data');
 
 // Basic authentication: credentials come from AUTH_USER / AUTH_PASSWORD.
@@ -89,181 +89,7 @@ function normalizeDate(raw: unknown): string | null {
   return iso;
 }
 
-// Helper to load JSON artifacts from data/
-function loadJson(fileName: string) {
-  const fullPath = path.join(DATA_DIR, fileName);
-  if (fs.existsSync(fullPath)) {
-    return JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
-  }
-  return null;
-}
-
-// 1. EDA Summary Endpoint
-app.get('/api/eda', (req: Request, res: Response) => {
-  try {
-    const data = loadJson('eda_summary.json');
-    if (!data) {
-      return res.status(404).json({ error: 'EDA data not generated yet' });
-    }
-    res.json(data);
-  } catch (err) {
-    sendServerError(res, err);
-  }
-});
-
-// 2. Models Benchmark & Libraries Evaluation Endpoint
-app.get('/api/benchmark', (req: Request, res: Response) => {
-  try {
-    const data = loadJson('models_benchmark.json');
-    if (!data) {
-      return res.status(404).json({ error: 'Benchmark data not found' });
-    }
-    res.json(data);
-  } catch (err) {
-    sendServerError(res, err);
-  }
-});
-
-// 3. Companies Index Endpoint
-app.get('/api/companies', (req: Request, res: Response) => {
-  try {
-    const data = loadJson('companies_index.json');
-    if (!data) {
-      return res.status(404).json({ error: 'Companies data not found' });
-    }
-    res.json(data);
-  } catch (err) {
-    sendServerError(res, err);
-  }
-});
-
-// 4. Single Company Detailed Forecast Endpoint
-app.get('/api/company/:id', (req: Request, res: Response) => {
-  try {
-    const cid = req.params.id;
-    const sampleForecasts = loadJson('sample_forecasts.json') || {};
-    
-    if (sampleForecasts[cid]) {
-      return res.json(sampleForecasts[cid]);
-    }
-
-    const companies = loadJson('companies_index.json') || [];
-    const compInfo = companies.find((c: any) => c.company_id === cid);
-
-    if (!compInfo) {
-      return res.status(404).json({ error: `Company ${cid} not found` });
-    }
-
-    const lastBal = compInfo.last_balance;
-    const avgDailyFlow = (compInfo.total_inflow + compInfo.total_outflow) / (compInfo.total_operations * 2);
-    const futureDates = [];
-    let cumBal = lastBal;
-    const alerts = [];
-
-    const now = new Date('2026-10-01');
-    for (let i = 1; i <= 30; i++) {
-      const d = new Date(now);
-      d.setDate(d.getDate() + i);
-      const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-      const dom = d.getDate();
-
-      const predIn = isWeekend ? 0 : avgDailyFlow * (0.8 + Math.sin(i) * 0.3);
-      let predOut = isWeekend ? 0 : avgDailyFlow * (0.85 + Math.cos(i) * 0.25);
-      let schedOut = 0;
-      let schedDesc = 'Текущие операционные расходы';
-
-      if (dom === 10 && !isWeekend) {
-        schedOut = avgDailyFlow * 4;
-        schedDesc = 'Зарплата: Окончательный расчет (10-е число)';
-      } else if (dom === 25 && !isWeekend) {
-        schedOut = avgDailyFlow * 3;
-        schedDesc = 'Зарплата: Аванс (25-е число)';
-      } else if (dom === 28 && !isWeekend) {
-        schedOut = avgDailyFlow * 5;
-        schedDesc = 'Единый налоговый платеж (ЕНП 28-го числа)';
-      }
-
-      predOut += schedOut;
-      cumBal += (predIn - predOut);
-
-      const spread = Math.sqrt(i) * avgDailyFlow * 0.8;
-      const p10 = cumBal - spread;
-      const p90 = cumBal + spread;
-      const gapProb = cumBal < 0 ? 80 : (p10 < 0 ? Math.min(65, Math.round((-p10 / spread) * 50)) : 5);
-
-      futureDates.push({
-        date: d.toISOString().split('T')[0],
-        balance_p50: Math.round(cumBal),
-        balance_p10: Math.round(p10),
-        balance_p90: Math.round(p90),
-        inflow: Math.round(predIn),
-        outflow: Math.round(predOut),
-        sched_outflow: Math.round(schedOut),
-        sched_description: schedDesc,
-        gap_probability_pct: gapProb,
-        is_forecast: true
-      });
-
-      if (gapProb >= 25 || cumBal < 0) {
-        const def = Math.max(0, -Math.round(p10), -Math.round(cumBal));
-        const isTax = dom === 28;
-        const isSalary = dom === 10 || dom === 25;
-        const isRent = dom <= 5;
-        const defStr = def.toLocaleString('ru-RU') + ' ₽';
-        const bufferStr = Math.round(def * 1.15).toLocaleString('ru-RU') + ' ₽';
-        const splitStr = Math.round(def * 0.5).toLocaleString('ru-RU') + ' ₽';
-
-        const recs: string[] = [];
-        if (isSalary && isTax) {
-          recs.push(`1. Приоритет обязательств: Выплатить зарплату (ст. 142 ТК РФ). По ЕНП подать заявление в ФНС о рассрочке (ст. 64 НК РФ) либо внести аванс ${splitStr}, перенеся остаток на 5 дней.`);
-        } else if (isTax) {
-          recs.push(`1. Налоговый маневр: Обеспечить бронь средств ${defStr} под ЕНП за 48 часов до списания ФНС, либо согласовать налоговый овердрафт.`);
-        } else if (isSalary) {
-          recs.push(`1. Зарплатный транш: Для бесперебойной выплаты персоналу подключить целевой зарплатный овердрафт со льготным грейс-периодом на ${defStr}.`);
-        } else if (isRent) {
-          recs.push(`1. Перенос аренды: Направить арендодателю гарантийное письмо о сдвиге оплаты на 7 дней после инкассации поступлений от покупателей.`);
-        } else {
-          recs.push(`1. Сдвиг кредиторской задолженности: Согласовать с поставщиками частичную оплату 40% и перенос оставшихся ${splitStr} на 5-7 рабочих дней.`);
-        }
-        recs.push(`2. Экспресс-факторинг: Передать счета дебиторов Банку Центр-инвест — финансирование до 90% (${defStr}) за 2 часа без залога.`);
-        recs.push(`3. Возобновляемая кредитная линия (ВКЛ): Открыть лимит в Банке Центр-инвест на ${bufferStr} (дефицит ${defStr} + 15% буфер надежности).`);
-
-        alerts.push({
-          date: d.toLocaleDateString('ru-RU'),
-          severity: cumBal < 0 || gapProb > 50 ? 'CRITICAL' : 'WARNING',
-          probability_pct: gapProb,
-          deficit_rub: def,
-          balance_p50: Math.round(cumBal),
-          balance_p10: Math.round(p10),
-          cause: `Пиковая нагрузка обязательств: ${schedDesc} при дефиците расчетного счета ${defStr}`,
-          recommendation: recs.join('\n')
-        });
-      }
-    }
-
-    res.json({
-      company_id: cid,
-      industry: compInfo.industry,
-      split: compInfo.split,
-      current_balance: lastBal,
-      min_forecast_p50: Math.min(...futureDates.map(f => f.balance_p50)),
-      min_forecast_p10: Math.min(...futureDates.map(f => f.balance_p10)),
-      max_gap_probability: Math.max(...futureDates.map(f => f.gap_probability_pct)),
-      recurring_items: [
-        { category_name: 'Зарплата: Окончательный расчет', counterparty: 'Сотрудники компании', typical_day: 10, typical_amount: Math.round(avgDailyFlow * 4) },
-        { category_name: 'Зарплата: Аванс', counterparty: 'Сотрудники компании', typical_day: 25, typical_amount: Math.round(avgDailyFlow * 3) },
-        { category_name: 'Налоги и взносы (ЕНП)', counterparty: 'ФНС России (ЕНП)', typical_day: 28, typical_amount: Math.round(avgDailyFlow * 5) }
-      ],
-      history: [],
-      forecast: futureDates,
-      alerts
-    });
-  } catch (err) {
-    sendServerError(res, err);
-  }
-});
-
-// 5. Custom Bank Statement Upload & Analysis Endpoint
+// Bank statement upload & analysis
 app.post('/api/analyze-statement', (req: Request, res: Response) => {
   try {
     const { companyName, operations, initialBalance, closingBalance } = req.body ?? {};
@@ -406,19 +232,7 @@ app.post('/api/analyze-statement', (req: Request, res: Response) => {
   }
 });
 
-// 6. Template C052 Download Endpoint
-app.get('/api/template-c052.csv', (_req: Request, res: Response) => {
-  const filePath = path.join(DATA_DIR, 'template_c052.csv');
-  if (fs.existsSync(filePath)) {
-    res.setHeader('Content-Disposition', 'attachment; filename="template_c052.csv"');
-    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-    res.sendFile(filePath);
-  } else {
-    res.status(404).send('Template file not found');
-  }
-});
-
-// 7. Demo C052 Download / Fetch Endpoint
+// Demo statement C052 for the one-click demo
 app.get('/api/demo-c052.csv', (_req: Request, res: Response) => {
   const filePath = path.join(DATA_DIR, 'demo_statement_c052.csv');
   if (fs.existsSync(filePath)) {

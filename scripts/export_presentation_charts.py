@@ -17,128 +17,10 @@ plt.rcParams['font.sans-serif'] = 'DejaVu Sans'
 plt.rcParams['axes.edgecolor'] = '#334155'
 plt.rcParams['axes.linewidth'] = 0.8
 
-# Load real EDA and benchmark data if available
+# Slides are built from the computed EDA summary (data/eda_summary.json).
+# Model-quality charts come from the backtest: scripts/backtest.ts + scripts/plot_backtest.py
 with open('data/eda_summary.json', 'r', encoding='utf-8') as f:
     eda_data = json.load(f)
-
-# 1. Models Comparison Chart (Slide 4)
-fig, ax1 = plt.subplots(figsize=(11, 5.5), dpi=220)
-fig.patch.set_facecolor('#0f172a')
-ax1.set_facecolor('#1e293b')
-
-models = [
-    'Hybrid Engine\n(Calendar + ML)',
-    'Ridge\n(alpha=100)',
-    'LightGBM\n(Direct)',
-    'Huber\nRegressor',
-    'Random\nForest',
-    'Linear Reg\n(OLS)',
-    'Naive\nMoving Avg'
-]
-
-mae_balance = [1.16, 1.48, 1.68, 1.89, 2.04, 2.58, 3.45] # Millions RUB
-wape = [21.3, 26.9, 24.8, 29.5, 31.8, 38.4, 48.2] # %
-
-x = np.arange(len(models))
-width = 0.38
-
-rects1 = ax1.bar(x - width/2, mae_balance, width, label='MAE Остатка 30д (млн ₽)', color='#38bdf8', edgecolor='#0284c7')
-ax1.set_ylabel('MAE Остатка (млн ₽)', color='#38bdf8', fontsize=11, fontweight='bold')
-ax1.tick_params(axis='y', labelcolor='#38bdf8')
-ax1.set_xticks(x)
-ax1.set_xticklabels(models, color='#e2e8f0', fontsize=9.5)
-ax1.grid(axis='y', linestyle='--', alpha=0.2, color='#94a3b8')
-
-for rect in rects1:
-    h = rect.get_height()
-    ax1.text(rect.get_x() + rect.get_width()/2, h + 0.08, f'{h:.2f}M', ha='center', color='#38bdf8', fontsize=8.5, fontweight='bold')
-
-ax2 = ax1.twinx()
-rects2 = ax2.bar(x + width/2, wape, width, label='WAPE потока (%)', color='#f43f5e', edgecolor='#be123c', alpha=0.85)
-ax2.set_ylabel('WAPE потока (%)', color='#f43f5e', fontsize=11, fontweight='bold')
-ax2.tick_params(axis='y', labelcolor='#f43f5e')
-
-for rect in rects2:
-    h = rect.get_height()
-    ax2.text(rect.get_x() + rect.get_width()/2, h + 1.0, f'{h:.1f}%', ha='center', color='#f43f5e', fontsize=8.5, fontweight='bold')
-
-plt.title('Сравнение моделей прогнозирования ДДС на кросс-валидации (150 компаний, 5 фолдов по 30 дней)', color='#f8fafc', fontsize=12, fontweight='bold', pad=15)
-fig.tight_layout()
-plt.savefig(os.path.join(OUT_DIR, '1_models_comparison_chart.png'), facecolor=fig.get_facecolor(), bbox_inches='tight')
-plt.close()
-
-# 2. Feature Importance Chart
-fig, ax = plt.subplots(figsize=(10, 5.2), dpi=220)
-fig.patch.set_facecolor('#0f172a')
-ax.set_facecolor('#1e293b')
-
-features = [
-    'Календарь ЕНП (25-28 число, налоги)',
-    'Календарь ЗП: Расчет (8-10 число)',
-    'Скользящее среднее выручки (14 дн.)',
-    'Лаг списаний (7 дн. - недельный ритм)',
-    'Рабочий день по календарю РФ',
-    'Календарь ЗП: Аванс (23-25 число)',
-    'Месячный лаг выручки (28 дн.)',
-    'Квартальные налоговые пики',
-    'День недели (эффект эквайринга ПН)'
-]
-importance = [24.5, 19.8, 16.2, 11.5, 8.9, 7.4, 4.8, 3.8, 3.1]
-y_pos = np.arange(len(features))
-
-colors = ['#10b981' if imp > 15 else '#6366f1' if imp > 7 else '#94a3b8' for imp in importance]
-
-rects = ax.barh(y_pos, importance, align='center', color=colors, edgecolor='#334155')
-ax.set_yticks(y_pos)
-ax.set_yticklabels(features, color='#e2e8f0', fontsize=9.5)
-ax.invert_yaxis()
-ax.set_xlabel('Вклад в объясненную дисперсию потоков ДДС (%)', color='#cbd5e1', fontsize=10, fontweight='bold')
-ax.tick_params(axis='x', labelcolor='#cbd5e1')
-ax.grid(axis='x', linestyle='--', alpha=0.2, color='#94a3b8')
-
-for rect in rects:
-    w = rect.get_width()
-    ax.text(w + 0.4, rect.get_y() + rect.get_height()/2, f'{w:.1f}%', va='center', ha='left', color='#f8fafc', fontsize=9, fontweight='bold')
-
-plt.title('Главные факторы прогнозирования остатка (Feature Importance)', color='#f8fafc', fontsize=12, fontweight='bold', pad=15)
-fig.tight_layout()
-plt.savefig(os.path.join(OUT_DIR, '2_feature_importance.png'), facecolor=fig.get_facecolor(), bbox_inches='tight')
-plt.close()
-
-# 3. Hyperparameter Tuning Chart (Ridge alpha & Gradient Boosting loss)
-fig, (ax_r, ax_l) = plt.subplots(1, 2, figsize=(11, 4.5), dpi=220)
-fig.patch.set_facecolor('#0f172a')
-ax_r.set_facecolor('#1e293b')
-ax_l.set_facecolor('#1e293b')
-
-alphas = [0.1, 1.0, 10.0, 100.0, 500.0]
-ridge_mae = [2.34, 2.11, 1.95, 1.48, 2.04] # M RUB
-ax_r.plot([str(a) for a in alphas], ridge_mae, marker='o', color='#38bdf8', linewidth=2.5, markersize=7)
-ax_r.set_title('Ridge: Подбор параметра alpha', color='#f8fafc', fontsize=10.5, fontweight='bold')
-ax_r.set_xlabel('Параметр регуляризации alpha', color='#cbd5e1', fontsize=9.5)
-ax_r.set_ylabel('CV MAE остатка (млн ₽)', color='#38bdf8', fontsize=9.5)
-ax_r.tick_params(colors='#cbd5e1')
-ax_r.grid(True, linestyle='--', alpha=0.2, color='#94a3b8')
-ax_r.annotate('Оптимум: alpha=100\n(гасит шум лагов)', xy=(3, 1.48), xytext=(2.0, 1.85),
-            arrowprops=dict(facecolor='#10b981', shrink=0.08, width=1.5, headwidth=6),
-            color='#10b981', fontweight='bold', fontsize=9)
-
-losses = ['Squared Error (MSE)', 'Absolute Error (L1)']
-lgbm_wape = [27.2, 21.3]
-bars = ax_l.bar(losses, lgbm_wape, color=['#f43f5e', '#10b981'], width=0.45, edgecolor='#334155')
-ax_l.set_title('Gradient Boosting: Выбор функции потерь', color='#f8fafc', fontsize=10.5, fontweight='bold')
-ax_l.set_ylabel('WAPE потока (%)', color='#cbd5e1', fontsize=9.5)
-ax_l.tick_params(colors='#cbd5e1')
-ax_l.grid(axis='y', linestyle='--', alpha=0.2, color='#94a3b8')
-for bar in bars:
-    y = bar.get_height()
-    ax_l.text(bar.get_x() + bar.get_width()/2, y + 0.6, f'{y:.1f}%', ha='center', color='#f8fafc', fontweight='bold', fontsize=9.5)
-ax_l.text(0.5, 24.5, '-22% ошибки\nблагодаря L1', ha='center', color='#10b981', fontweight='bold', fontsize=9.5)
-
-fig.suptitle('Оптимизация гиперпараметров моделей', color='#f8fafc', fontsize=12, fontweight='bold', y=1.02)
-fig.tight_layout()
-plt.savefig(os.path.join(OUT_DIR, '3_hyperparameters_tuning.png'), facecolor=fig.get_facecolor(), bbox_inches='tight')
-plt.close()
 
 # 4. EDA Insights: Category breakdown, Delays distribution & Cash Gap Risk
 fig, (ax_cat, ax_del, ax_gap) = plt.subplots(1, 3, figsize=(16, 5.2), dpi=220)
@@ -368,9 +250,8 @@ plt.tight_layout()
 plt.savefig(os.path.join(OUT_DIR, '6_architecture_solution_pipeline.png'), facecolor=fig.get_facecolor(), bbox_inches='tight')
 plt.close()
 
-# Also copy/save benchmark_full_report.png and benchmark_models_slide.png for compatibility
+# Also save benchmark_full_report.png for compatibility
 import shutil
-shutil.copyfile(os.path.join(OUT_DIR, '1_models_comparison_chart.png'), os.path.join(OUT_DIR, 'benchmark_models_slide.png'))
 shutil.copyfile(os.path.join(OUT_DIR, '4_eda_cash_flow_structure.png'), os.path.join(OUT_DIR, 'benchmark_full_report.png'))
 
 print("All presentation PNG assets generated successfully in presentation_assets/")

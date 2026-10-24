@@ -21,7 +21,7 @@ COPY --from=build /app/dist ./dist
 COPY server.ts ./
 COPY shared ./shared
 # Only precomputed artifacts and the demo statement; raw train/test stay out of the image
-COPY data/*.json data/*.csv ./data/
+COPY data/demo_statement_c052.csv ./data/
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
