@@ -34,6 +34,8 @@ import {
 } from 'lucide-react';
 import { summarizePaths, buildGapAlerts, addDaysIso } from '../shared/cashflow.ts';
 import type { ForecastPoint, GapAlert, Insight } from '../shared/cashflow.ts';
+import ZoomChart from './ZoomChart.tsx';
+import type { ChartMarker } from './ZoomChart.tsx';
 
 interface StatementData {
   company_id: string;
@@ -101,27 +103,6 @@ interface FormatErrorDetail {
 
 const ruDate = (iso: string) => iso.slice(0, 10).split('-').reverse().join('.');
 const ruDayMonth = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}`;
-
-// Date labels under an SVG chart drawn in viewBox 0..800 with data points from x=10 to x=790.
-// The 17px inset matches the chart container's p-4 padding plus its border.
-function DateAxis({ dates, ticks = 6 }: { dates: string[]; ticks?: number }) {
-  if (dates.length < 2) return null;
-  const count = Math.min(ticks, dates.length);
-  const idxs = [...new Set(Array.from({ length: count }, (_, k) => Math.round((k * (dates.length - 1)) / (count - 1))))];
-  return (
-    <div className="relative h-4 mx-[17px] text-[10px] text-slate-400 font-mono" aria-hidden="true">
-      {idxs.map(i => (
-        <span
-          key={i}
-          className="absolute -translate-x-1/2 whitespace-nowrap"
-          style={{ left: `${((10 + (i / (dates.length - 1)) * 780) / 800) * 100}%` }}
-        >
-          {ruDayMonth(dates[i])}
-        </span>
-      ))}
-    </div>
-  );
-}
 
 // "Period: dd.mm.yyyy – dd.mm.yyyy" caption shown under every chart title
 function ChartPeriod({ from, to, note }: { from?: string; to?: string; note?: string }) {
@@ -689,11 +670,11 @@ export default function App() {
 
             <button
               onClick={downloadC052Template}
-              title="Скачать эталонный шаблон CSV на базе C052"
+              title="Скачать эталонный шаблон CSV"
               className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 flex items-center gap-1 transition-all cursor-pointer"
             >
               <Download className="w-3.5 h-3.5 text-slate-400" />
-              Шаблон CSV (C052)
+              Шаблон CSV
             </button>
 
             {hasData && (
@@ -872,7 +853,7 @@ export default function App() {
                     <Download className="w-6 h-6 text-slate-300" />
                   </div>
                   <span className="text-sm font-bold text-white group-hover:text-slate-200">
-                    Скачать шаблон CSV (C052)
+                    Скачать шаблон CSV
                   </span>
                   <span className="text-xs text-slate-400 mt-1">
                     Чистый эталонный файл с заголовками и примерами строк для легкого заполнения
@@ -1120,7 +1101,7 @@ export default function App() {
                         />
                       )}
                     </div>
-                    <div className="flex items-center gap-4 text-xs font-medium">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-medium">
                       <div className="flex items-center gap-1.5">
                         <span className="w-3 h-3 rounded-full bg-indigo-500"></span>
                         <span className="text-slate-300">Остаток на счете</span>
@@ -1133,60 +1114,53 @@ export default function App() {
                         <span className="w-3 h-3 rounded-sm bg-rose-500"></span>
                         <span className="text-slate-300">Списания</span>
                       </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-full bg-rose-500 ring-2 ring-rose-500/30"></span>
+                        <span className="text-slate-300">Кассовый разрыв</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-full bg-amber-500 ring-2 ring-amber-500/30"></span>
+                        <span className="text-slate-300">Минимум остатка</span>
+                      </div>
                     </div>
                   </div>
 
                   {/* SVG Chart */}
-                  <div className="h-64 w-full bg-slate-950/60 rounded-xl p-4 border border-slate-800/80 relative">
+                  <div className="w-full bg-slate-950/60 rounded-xl p-3 border border-slate-800/80">
                     {statementData && statementData.history && statementData.history.length > 1 ? (
                       (() => {
                         const pts = statementData.history;
                         const balances = pts.map(p => p.balance);
-                        const minB = Math.min(...balances, 0);
-                        const maxB = Math.max(...balances, 100000);
-                        const range = maxB - minB || 1;
-
-                        const polyPoints = pts
-                          .map((p, i) => {
-                            const x = (i / (pts.length - 1)) * 780 + 10;
-                            const y = 200 - ((p.balance - minB) / range) * 170 - 15;
-                            return `${x},${y}`;
-                          })
-                          .join(' ');
-
+                        // First day of every stretch with a negative balance, plus the lowest balance of the period
+                        const markers: ChartMarker[] = [];
+                        pts.forEach((p, i) => {
+                          if (p.balance < 0 && (i === 0 || pts[i - 1].balance >= 0)) {
+                            markers.push({ index: i, value: p.balance, color: '#f43f5e', label: 'Кассовый разрыв' });
+                          }
+                        });
+                        const minIdx = balances.indexOf(Math.min(...balances));
+                        if (!markers.some(m => m.index === minIdx)) {
+                          markers.push({ index: minIdx, value: balances[minIdx], color: '#f59e0b', label: 'Минимум остатка' });
+                        }
                         return (
-                          <svg className="w-full h-full overflow-visible" viewBox="0 0 800 200" preserveAspectRatio="none">
-                            <line
-                              x1="0"
-                              y1={200 - ((0 - minB) / range) * 170 - 15}
-                              x2="800"
-                              y2={200 - ((0 - minB) / range) * 170 - 15}
-                              stroke="#475569"
-                              strokeWidth="1"
-                              strokeDasharray="4 4"
-                            />
-                            <polyline
-                              fill="none"
-                              stroke="#6366f1"
-                              strokeWidth="2.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              points={polyPoints}
-                            />
-                          </svg>
+                          <ZoomChart
+                            dates={pts.map(p => p.date)}
+                            lines={[{ label: 'Остаток на счете', color: '#6366f1', values: balances, width: 2.5 }]}
+                            refLines={[{ label: 'Ноль', value: 0, color: '#475569' }]}
+                            markers={markers}
+                            bars={{ inflow: pts.map(p => p.inflow), outflow: pts.map(p => p.outflow) }}
+                            height={190}
+                          />
                         );
                       })()
                     ) : (
-                      <div className="h-full flex items-center justify-center text-xs text-slate-500">
+                      <div className="h-56 flex items-center justify-center text-xs text-slate-500">
                         {statementData
                           ? 'Обработано однократное сальдо компании'
                           : 'Введены разовые операции в ручном режиме'}
                       </div>
                     )}
                   </div>
-                  {statementData?.history && statementData.history.length > 1 && (
-                    <DateAxis dates={statementData.history.map(p => p.date)} ticks={7} />
-                  )}
                 </div>
 
                 {/* Categories & Payment Discipline Breakdown */}
@@ -1386,94 +1360,65 @@ export default function App() {
                       )}
                     </div>
 
-                    <div className="flex items-center gap-4 text-xs font-medium">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs font-medium">
                       <div className="flex items-center gap-1.5">
                         <span className="w-3 h-0.5 bg-indigo-400"></span>
                         <span className="text-slate-300">Медиана P50</span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="w-3 h-0.5 bg-rose-400 stroke-dash"></span>
+                        <span className="w-3 h-0 border-t-2 border-dashed border-rose-400"></span>
                         <span className="text-slate-300">Пессимистичный P10</span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="w-3 h-3 rounded-full bg-rose-500"></span>
-                        <span className="text-slate-300">Точка кассового разрыва</span>
+                        <span className="w-3 h-0 border-t-2 border-dashed border-emerald-400"></span>
+                        <span className="text-slate-300">Оптимистичный P90</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-sm bg-indigo-500/25"></span>
+                        <span className="text-slate-300">Коридор P10–P90</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-full bg-rose-500 ring-2 ring-rose-500/30"></span>
+                        <span className="text-slate-300">
+                          Точка кассового разрыва
+                          {!effectiveForecast.some(p => p.balance_p10 < safetyBuffer) && (
+                            <span className="text-slate-500"> (в этом прогнозе нет)</span>
+                          )}
+                        </span>
                       </div>
                     </div>
                   </div>
 
                   {/* SVG Chart */}
-                  <div className="h-72 w-full bg-slate-950/70 rounded-xl p-4 border border-slate-800/80 relative">
+                  <div className="w-full bg-slate-950/70 rounded-xl p-3 border border-slate-800/80">
                     {effectiveForecast.length > 1 && (() => {
                       const pts = effectiveForecast;
-                      const allVals = pts.flatMap(p => [p.balance_p50, p.balance_p10, p.balance_p90, 0]);
-                      const minV = Math.min(...allVals);
-                      const maxV = Math.max(...allVals);
-                      const range = maxV - minV || 1;
-
-                      const zeroY = 200 - ((0 - minV) / range) * 170 - 15;
-
-                      const p50Points = pts
-                        .map((p, i) => {
-                          const x = (i / (pts.length - 1)) * 780 + 10;
-                          const y = 200 - ((p.balance_p50 - minV) / range) * 170 - 15;
-                          return `${x},${y}`;
-                        })
-                        .join(' ');
-
-                      const p10Points = pts
-                        .map((p, i) => {
-                          const x = (i / (pts.length - 1)) * 780 + 10;
-                          const y = 200 - ((p.balance_p10 - minV) / range) * 170 - 15;
-                          return `${x},${y}`;
-                        })
-                        .join(' ');
-
-                      // Shaded area between p10 and p90
-                      const areaPoints = [
-                        ...pts.map((p, i) => {
-                          const x = (i / (pts.length - 1)) * 780 + 10;
-                          const y = 200 - ((p.balance_p90 - minV) / range) * 170 - 15;
-                          return `${x},${y}`;
-                        }),
-                        ...[...pts].reverse().map((p, i) => {
-                          const revIdx = pts.length - 1 - i;
-                          const x = (revIdx / (pts.length - 1)) * 780 + 10;
-                          const y = 200 - ((p.balance_p10 - minV) / range) * 170 - 15;
-                          return `${x},${y}`;
-                        })
-                      ].join(' ');
-
+                      const p50 = pts.map(p => p.balance_p50);
+                      const p10 = pts.map(p => p.balance_p10);
+                      const gapP50 = p50.findIndex(v => v < safetyBuffer);
+                      const gapP10 = p10.findIndex(v => v < safetyBuffer);
+                      const markers: ChartMarker[] = [];
+                      if (gapP50 >= 0) markers.push({ index: gapP50, value: p50[gapP50], color: '#f43f5e', label: 'Разрыв по медиане P50' });
+                      if (gapP10 >= 0) markers.push({ index: gapP10, value: p10[gapP10], color: '#f43f5e', label: 'Разрыв в стресс-сценарии P10' });
                       return (
-                        <svg className="w-full h-full overflow-visible" viewBox="0 0 800 200" preserveAspectRatio="none">
-                          <polygon points={areaPoints} fill="#6366f1" fillOpacity="0.12" />
-                          <line x1="0" y1={zeroY} x2="800" y2={zeroY} stroke="#f43f5e" strokeWidth="1.5" strokeDasharray="3 3" />
-                          <polyline fill="none" stroke="#f43f5e" strokeWidth="1.5" strokeDasharray="4 4" points={p10Points} />
-                          <polyline fill="none" stroke="#6366f1" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" points={p50Points} />
-
-                          {pts.map((p, i) => {
-                            const x = (i / (pts.length - 1)) * 780 + 10;
-                            const y = 200 - ((p.balance_p50 - minV) / range) * 170 - 15;
-                            const isGap = p.balance_p10 < 0 || p.balance_p50 < 0;
-
-                            return (
-                              <g key={i}>
-                                <circle
-                                  cx={x}
-                                  cy={y}
-                                  r={isGap ? 5.5 : 4}
-                                  fill={isGap ? '#f43f5e' : '#f59e0b'}
-                                  stroke="#0f172a"
-                                  strokeWidth="1.5"
-                                />
-                              </g>
-                            );
-                          })}
-                        </svg>
+                        <ZoomChart
+                          dates={pts.map(p => p.date)}
+                          lines={[
+                            { label: 'Медиана P50', color: '#6366f1', values: p50, width: 2.5 },
+                            { label: 'Пессимистичный P10', color: '#f43f5e', values: p10, dash: '5 4', width: 1.75 },
+                            { label: 'Оптимистичный P90', color: '#10b981', values: pts.map(p => p.balance_p90), dash: '5 4', width: 1.75 }
+                          ]}
+                          band={{ label: 'Коридор P10–P90', color: '#6366f1', lower: p10, upper: pts.map(p => p.balance_p90) }}
+                          refLines={[
+                            { label: 'Ноль', value: 0, color: '#64748b' },
+                            ...(safetyBuffer > 0 ? [{ label: 'Буфер', value: safetyBuffer, color: '#f59e0b' }] : [])
+                          ]}
+                          markers={markers}
+                          height={230}
+                        />
                       );
                     })()}
                   </div>
-                  <DateAxis dates={effectiveForecast.map(p => p.date)} ticks={7} />
                 </div>
 
                 {/* Algorithmic Cash Gap Assessment Panel (Deficit, %, Cause, Prescriptions) */}
@@ -1825,71 +1770,51 @@ export default function App() {
                           />
                         )}
                       </div>
-                      <div className="flex items-center gap-4 text-xs">
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs">
                         <div className="flex items-center gap-1.5">
-                          <span className="w-3 h-0.5 bg-slate-400 stroke-dash"></span>
+                          <span className="w-3 h-0 border-t-2 border-dashed border-slate-400"></span>
                           <span className="text-slate-400">Базовый прогноз</span>
                         </div>
                         <div className="flex items-center gap-1.5">
                           <span className="w-3 h-0.5 bg-indigo-400 font-bold"></span>
                           <span className="text-indigo-300 font-bold">Стресс-сценарий</span>
                         </div>
+                        {safetyBuffer > 0 && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-3 h-0 border-t-2 border-dashed border-amber-400"></span>
+                            <span className="text-slate-400">Неснижаемый буфер</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-3 h-3 rounded-full bg-rose-500 ring-2 ring-rose-500/30"></span>
+                          <span className="text-slate-400">Разрыв в сценарии</span>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="h-64 w-full bg-slate-950/70 rounded-xl p-4 border border-slate-800/80 relative">
+                    <div className="w-full bg-slate-950/70 rounded-xl p-3 border border-slate-800/80">
                       {effectiveForecast.length > 1 && (() => {
                         const simPts = effectiveForecast;
-                        const basePts = statementData ? statementData.forecast : simPts;
-                        const allVals = [
-                          ...simPts.map(p => p.balance_p50),
-                          ...basePts.map(p => p.balance_p50),
-                          0,
-                          safetyBuffer
-                        ];
-                        const minV = Math.min(...allVals);
-                        const maxV = Math.max(...allVals);
-                        const range = maxV - minV || 1;
-
-                        const zeroY = 200 - ((0 - minV) / range) * 170 - 15;
-                        const buffY = 200 - ((safetyBuffer - minV) / range) * 170 - 15;
-
+                        const basePts = statementData && statementData.forecast.length === simPts.length ? statementData.forecast : simPts;
+                        const sim = simPts.map(p => p.balance_p50);
+                        const gapDay = sim.findIndex(v => v < safetyBuffer);
                         return (
-                          <svg className="w-full h-full overflow-visible" viewBox="0 0 800 200" preserveAspectRatio="none">
-                            <line x1="0" y1={zeroY} x2="800" y2={zeroY} stroke="#f43f5e" strokeWidth="1.5" strokeDasharray="3 3" />
-                            {safetyBuffer > 0 && (
-                              <line x1="0" y1={buffY} x2="800" y2={buffY} stroke="#f59e0b" strokeWidth="1.5" strokeDasharray="4 4" />
-                            )}
-                            <path
-                              d={basePts
-                                .map((p, i) => {
-                                  const x = (i / (basePts.length - 1)) * 780 + 10;
-                                  const y = 200 - ((p.balance_p50 - minV) / range) * 170 - 15;
-                                  return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-                                })
-                                .join(' ')}
-                              fill="none"
-                              stroke="#64748b"
-                              strokeWidth="2"
-                              strokeDasharray="4 4"
-                            />
-                            <path
-                              d={simPts
-                                .map((p, i) => {
-                                  const x = (i / (simPts.length - 1)) * 780 + 10;
-                                  const y = 200 - ((p.balance_p50 - minV) / range) * 170 - 15;
-                                  return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-                                })
-                                .join(' ')}
-                              fill="none"
-                              stroke="#6366f1"
-                              strokeWidth="3"
-                            />
-                          </svg>
+                          <ZoomChart
+                            dates={simPts.map(p => p.date)}
+                            lines={[
+                              { label: 'Базовый прогноз', color: '#64748b', values: basePts.map(p => p.balance_p50), dash: '5 4', width: 2 },
+                              { label: 'Стресс-сценарий', color: '#6366f1', values: sim, width: 3 }
+                            ]}
+                            refLines={[
+                              { label: 'Ноль', value: 0, color: '#f43f5e' },
+                              ...(safetyBuffer > 0 ? [{ label: 'Буфер', value: safetyBuffer, color: '#f59e0b' }] : [])
+                            ]}
+                            markers={gapDay >= 0 ? [{ index: gapDay, value: sim[gapDay], color: '#f43f5e', label: 'Разрыв в сценарии' }] : []}
+                            height={200}
+                          />
                         );
                       })()}
                     </div>
-                    <DateAxis dates={effectiveForecast.map(p => p.date)} ticks={7} />
                   </div>
 
                   {/* Scenario Outcome Comparison Cards */}
@@ -1988,7 +1913,7 @@ export default function App() {
                 className="flex-1 py-2.5 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
               >
                 <Download className="w-4 h-4" />
-                Скачать эталонный шаблон CSV (C052)
+                Скачать эталонный шаблон CSV
               </button>
 
               <button
