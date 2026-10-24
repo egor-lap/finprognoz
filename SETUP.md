@@ -1,0 +1,120 @@
+# Инструкция по локальному запуску и развертыванию проекта
+
+Данный проект содержит:
+1. **Полнофункциональный веб-сервис (React + Vite + Tailwind CSS + Express Backend)** — дашборд EDA по 150 компаниям, бенчмарк моделей, интерактивный прогноз ДДС, симулятор «Что, если?» и автономный финансовый аналитик.
+2. **Python ML-конвейер** (`scripts/run_eda_and_benchmark.py`) — воспроизведение расчетов, кросс-валидация и переобучение моделей на `train.csv` и `test.csv`.
+3. **Исходный Streamlit-скрипт** (`scripts/streamlit_app.py`).
+
+Структура данных:
+- `data/*.json`, `data/demo_statement_c052.csv`: готовые артефакты, их читает только сервер (через `/api/*` после аутентификации).
+- `data/raw/train.csv`, `data/raw/test.csv`: сырые выписки кейса. Они **не коммитятся** (см. `.gitignore`) и не попадают в Docker-образ. Положите их туда сами, если нужно переобучение.
+
+---
+
+## Вариант 0. Docker (рекомендуется для демо)
+
+```bash
+cp .env.example .env        # задайте AUTH_USER и AUTH_PASSWORD
+docker compose up --build
+```
+
+Откройте http://localhost:3000. Браузер спросит логин и пароль из `.env`. Если порт 3000 занят, задайте в `.env` `HOST_PORT=8080`.
+Проверка живости без пароля: `GET /api/health`.
+
+---
+
+## Вариант 1. Быстрый запуск веб-сервиса без Docker
+
+Все рассчитанные метрики EDA, бенчмарка моделей и прогнозы для всех 150 компаний уже сохранены в каталоге `data/`, поэтому сервис готов к работе сразу после установки зависимостей Node.js.
+
+В dev-режиме без `AUTH_USER`/`AUTH_PASSWORD` аутентификация отключена (в консоли будет предупреждение). В production (`NODE_ENV=production`) сервер без них не запустится.
+
+### Требования:
+- **Node.js** версии 24 (или 22.18+, нужен встроенный запуск .ts для `npm start`) ([скачать с официального сайта](https://nodejs.org/)). Vite 8 не поддерживает Node 18.
+- **npm** (устанавливается вместе с Node.js).
+
+### Шаги запуска:
+1. Распакуйте скачанный архив и перейдите в папку проекта в терминале (PowerShell / Command Prompt / bash):
+   ```bash
+   cd путь_к_папке_проекта
+   ```
+
+2. Установите зависимости:
+   ```bash
+   npm ci
+   ```
+
+3. Запустите сервер разработки:
+   ```bash
+   npm run dev
+   ```
+
+4. Откройте в браузере:
+   **[http://localhost:3000](http://localhost:3000)**
+
+Приложение сразу готово к использованию!
+
+### Production-режим на локальном сервере (с аутентификацией)
+
+```bash
+cp .env.example .env        # задайте AUTH_USER и AUTH_PASSWORD
+npm run build
+npm start
+```
+
+`npm start` раздаёт собранный `dist/` и требует логин и пароль из `.env`; без них сервер не запустится.
+
+---
+
+## Вариант 2. Переобучение ML-моделей и повторный расчет EDA через Python
+
+Если вы хотите заново запустить обучение моделей на датасетах `train.csv` и `test.csv`, провести подбор гиперпараметров и обновить JSON-артефакты:
+
+### Требования:
+- **Python** версии 3.10 или 3.11 ([скачать с python.org](https://www.python.org/)).
+
+### Шаги:
+1. Создайте и активируйте виртуальное окружение (рекомендуется):
+   - **Windows:**
+     ```bash
+     python -m venv venv
+     venv\Scripts\activate
+     ```
+   - **macOS / Linux:**
+     ```bash
+     python3 -m venv venv
+     source venv/bin/activate
+     ```
+
+2. Установите необходимые библиотеки для машинного обучения:
+   ```bash
+   pip install pandas numpy scikit-learn lightgbm
+   ```
+
+3. Запустите скрипт анализа и бенчмаркинга:
+   - **Windows:**
+     ```bash
+     python scripts/run_eda_and_benchmark.py
+     ```
+   - **macOS / Linux:**
+     ```bash
+     python3 scripts/run_eda_and_benchmark.py
+     ```
+
+Скрипт прочитает `data/raw/train.csv` и `data/raw/test.csv`, обучит модели и обновит артефакты в `data/`.
+
+---
+
+## Вариант 3. Запуск классического Streamlit-прототипа (app.py)
+
+Если вам также требуется запустить оригинальный скрипт на базе Streamlit:
+
+1. Установите библиотеки:
+   ```bash
+   pip install streamlit plotly pandas numpy scikit-learn
+   ```
+
+2. Запустите Streamlit:
+   ```bash
+   streamlit run scripts/streamlit_app.py
+   ```

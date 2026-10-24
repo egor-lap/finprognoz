@@ -1,0 +1,503 @@
+{
+  "overall": {
+    "total_operations": 222420,
+    "train_operations": 150358,
+    "test_operations": 72062,
+    "total_companies": 150,
+    "train_companies": 99,
+    "test_companies": 51,
+    "date_min": "2024-10-01",
+    "date_max": "2026-09-30",
+    "total_inflow": 21028157548.539997,
+    "total_outflow": 20823541396.879997,
+    "net_flow": 204616151.65999985,
+    "avg_operation_amount": 188165.17824575127,
+    "median_operation_amount": 36400.0,
+    "p90_operation_amount": 365400.0,
+    "p99_operation_amount": 2576014.6344999983,
+    "max_operation_amount": 78723000.0
+  },
+  "categories": [
+    {
+      "code": "IN_ACQUIRING",
+      "name": "Торговый эквайринг и СБП",
+      "direction": "Поступление",
+      "count": 94883,
+      "total_amount": 3135144965.47,
+      "avg_amount": 33042.22,
+      "median_amount": 10909.04,
+      "share_pct": 14.91
+    },
+    {
+      "code": "IN_CUSTOMER_REVENUE",
+      "name": "Выручка от покупателей (B2B/B2C)",
+      "direction": "Поступление",
+      "count": 48930,
+      "total_amount": 16140634976.87,
+      "avg_amount": 329871.96,
+      "median_amount": 118348.63,
+      "share_pct": 76.76
+    },
+    {
+      "code": "IN_ONE_OFF_ORDER",
+      "name": "Крупный разовый спецзаказ",
+      "direction": "Поступление",
+      "count": 64,
+      "total_amount": 1356277606.2,
+      "avg_amount": 21191837.6,
+      "median_amount": 17970798.13,
+      "share_pct": 6.45
+    },
+    {
+      "code": "IN_OWN_TRANSFER",
+      "name": "Перевод собственных средств",
+      "direction": "Поступление",
+      "count": 261,
+      "total_amount": 396100000.0,
+      "avg_amount": 1517624.52,
+      "median_amount": 950000.0,
+      "share_pct": 1.88
+    },
+    {
+      "code": "OUT_BANK_FEE",
+      "name": "Комиссии банка и РКО",
+      "direction": "Списание",
+      "count": 2836,
+      "total_amount": 8413309.86,
+      "avg_amount": 2966.61,
+      "median_amount": 1490.0,
+      "share_pct": 0.04
+    },
+    {
+      "code": "OUT_DIVIDENDS",
+      "name": "Дивиденды собственнику",
+      "direction": "Списание",
+      "count": 299,
+      "total_amount": 897065700.0,
+      "avg_amount": 3000219.73,
+      "median_amount": 1470300.0,
+      "share_pct": 4.31
+    },
+    {
+      "code": "OUT_LEGAL_SHOCK",
+      "name": "Штрафы / Исполнительные листы",
+      "direction": "Списание",
+      "count": 27,
+      "total_amount": 71789800.0,
+      "avg_amount": 2658881.48,
+      "median_amount": 1222800.0,
+      "share_pct": 0.34
+    },
+    {
+      "code": "OUT_LOGISTICS",
+      "name": "Транспорт и логистика",
+      "direction": "Списание",
+      "count": 1076,
+      "total_amount": 249575287.9,
+      "avg_amount": 231947.29,
+      "median_amount": 121254.54,
+      "share_pct": 1.2
+    },
+    {
+      "code": "OUT_ONE_OFF_PURCHASE",
+      "name": "Закупка под разовый спецзаказ",
+      "direction": "Списание",
+      "count": 69,
+      "total_amount": 1338817364.24,
+      "avg_amount": 19403150.21,
+      "median_amount": 18450000.0,
+      "share_pct": 6.43
+    },
+    {
+      "code": "OUT_OPEX_SERVICES",
+      "name": "ИТ, связь, охрана, бухгалтерия",
+      "direction": "Списание",
+      "count": 50723,
+      "total_amount": 10702719375.7,
+      "avg_amount": 211003.28,
+      "median_amount": 38996.03,
+      "share_pct": 51.4
+    },
+    {
+      "code": "OUT_RENT",
+      "name": "Аренда помещений и оборудования",
+      "direction": "Списание",
+      "count": 3683,
+      "total_amount": 549467400.0,
+      "avg_amount": 149190.17,
+      "median_amount": 92000.0,
+      "share_pct": 2.64
+    },
+    {
+      "code": "OUT_SALARY_ADVANCE",
+      "name": "Зарплата: Аванс (20-25 число)",
+      "direction": "Списание",
+      "count": 5279,
+      "total_amount": 1414210330.28,
+      "avg_amount": 267893.6,
+      "median_amount": 121400.0,
+      "share_pct": 6.79
+    },
+    {
+      "code": "OUT_SALARY_FINAL",
+      "name": "Зарплата: Окончательный расчет (8-10 число)",
+      "direction": "Списание",
+      "count": 2028,
+      "total_amount": 925777588.34,
+      "avg_amount": 456497.82,
+      "median_amount": 303617.74,
+      "share_pct": 4.45
+    },
+    {
+      "code": "OUT_SUPPLIER_COGS",
+      "name": "Закупка товара у поставщиков",
+      "direction": "Списание",
+      "count": 4130,
+      "total_amount": 1700789312.37,
+      "avg_amount": 411813.39,
+      "median_amount": 70712.68,
+      "share_pct": 8.17
+    },
+    {
+      "code": "OUT_TAXES_ENP",
+      "name": "Налоги и взносы (ЕНП 28-го числа)",
+      "direction": "Списание",
+      "count": 8132,
+      "total_amount": 2964915928.19,
+      "avg_amount": 364598.61,
+      "median_amount": 112214.67,
+      "share_pct": 14.24
+    }
+  ],
+  "industries": [
+    {
+      "industry": "Строительство",
+      "companies_count": 49,
+      "total_turnover": 9131715290.08,
+      "avg_company_turnover": 186361537.0,
+      "operations_count": 62608
+    },
+    {
+      "industry": "Общепит",
+      "companies_count": 28,
+      "total_turnover": 19838449074.13,
+      "avg_company_turnover": 708516038.0,
+      "operations_count": 57860
+    },
+    {
+      "industry": "IT-услуги",
+      "companies_count": 24,
+      "total_turnover": 6537155947.740001,
+      "avg_company_turnover": 272381498.0,
+      "operations_count": 14856
+    },
+    {
+      "industry": "Продуктовая розница",
+      "companies_count": 16,
+      "total_turnover": 2704016129.53,
+      "avg_company_turnover": 169001008.0,
+      "operations_count": 39734
+    },
+    {
+      "industry": "Одежда",
+      "companies_count": 12,
+      "total_turnover": 1398222538.5800002,
+      "avg_company_turnover": 116518545.0,
+      "operations_count": 23262
+    },
+    {
+      "industry": "Маркетплейсы",
+      "companies_count": 12,
+      "total_turnover": 1530870892.1600003,
+      "avg_company_turnover": 127572574.0,
+      "operations_count": 6455
+    },
+    {
+      "industry": "Услуги и торговля (СМБ)",
+      "companies_count": 4,
+      "total_turnover": 326416385.43999994,
+      "avg_company_turnover": 81604096.0,
+      "operations_count": 7704
+    },
+    {
+      "industry": "Опт",
+      "companies_count": 3,
+      "total_turnover": 287428544.57,
+      "avg_company_turnover": 95809515.0,
+      "operations_count": 6707
+    },
+    {
+      "industry": "Салоны красоты",
+      "companies_count": 2,
+      "total_turnover": 97424143.19,
+      "avg_company_turnover": 48712072.0,
+      "operations_count": 3234
+    }
+  ],
+  "invoice_delays": {
+    "count_with_invoice_date": 80545,
+    "pct_with_invoice_date": 36.2,
+    "mean_delay_days": 15.7,
+    "median_delay_days": 8,
+    "p25_delay_days": 1,
+    "p75_delay_days": 21,
+    "p90_delay_days": 42,
+    "distribution": [
+      {
+        "range": "0-7 дней (Экспресс)",
+        "count": 39015,
+        "pct": 48.4
+      },
+      {
+        "range": "8-14 дней (Стандарт)",
+        "count": 11806,
+        "pct": 14.7
+      },
+      {
+        "range": "15-30 дней (Отсрочка)",
+        "count": 15788,
+        "pct": 19.6
+      },
+      {
+        "range": "31-60 дней (Задержка)",
+        "count": 10689,
+        "pct": 13.3
+      },
+      {
+        "range": ">60 дней (Просрочка/Суд)",
+        "count": 3247,
+        "pct": 4.0
+      }
+    ]
+  },
+  "cash_gap_stats": {
+    "total_overdraft_operations": 5739,
+    "companies_with_overdraft": 37,
+    "pct_companies_with_overdraft": 24.7,
+    "historical_overdraft_companies": 16,
+    "forecast_critical_gap_companies": 37,
+    "max_negative_balance": -14516977.39,
+    "avg_negative_balance": -1728464.3229012026
+  },
+  "seasonality": [
+    {
+      "month_year": "2024-10",
+      "inflow": 853757342.3000001,
+      "outflow": 884819643.9200001,
+      "net_flow": -31062301.620000005,
+      "count": 9111
+    },
+    {
+      "month_year": "2024-11",
+      "inflow": 762801338.5,
+      "outflow": 740879560.49,
+      "net_flow": 21921778.00999999,
+      "count": 8559
+    },
+    {
+      "month_year": "2024-12",
+      "inflow": 739825441.8599999,
+      "outflow": 650051870.87,
+      "net_flow": 89773570.98999989,
+      "count": 8511
+    },
+    {
+      "month_year": "2025-01",
+      "inflow": 687117404.72,
+      "outflow": 814815671.01,
+      "net_flow": -127698266.28999996,
+      "count": 9357
+    },
+    {
+      "month_year": "2025-02",
+      "inflow": 667235766.41,
+      "outflow": 621323158.3199999,
+      "net_flow": 45912608.09000003,
+      "count": 8344
+    },
+    {
+      "month_year": "2025-03",
+      "inflow": 745081411.6,
+      "outflow": 757018607.34,
+      "net_flow": -11937195.74000001,
+      "count": 9000
+    },
+    {
+      "month_year": "2025-04",
+      "inflow": 803985534.1200001,
+      "outflow": 856399279.46,
+      "net_flow": -52413745.339999914,
+      "count": 8740
+    },
+    {
+      "month_year": "2025-05",
+      "inflow": 876181314.0699999,
+      "outflow": 784956258.67,
+      "net_flow": 91225055.39999998,
+      "count": 8762
+    },
+    {
+      "month_year": "2025-06",
+      "inflow": 768296003.26,
+      "outflow": 741884211.64,
+      "net_flow": 26411791.620000005,
+      "count": 9074
+    },
+    {
+      "month_year": "2025-07",
+      "inflow": 810632665.24,
+      "outflow": 888323593.0,
+      "net_flow": -77690927.75999999,
+      "count": 9170
+    },
+    {
+      "month_year": "2025-08",
+      "inflow": 854887867.84,
+      "outflow": 793016311.5,
+      "net_flow": 61871556.34000003,
+      "count": 8685
+    },
+    {
+      "month_year": "2025-09",
+      "inflow": 1014289350.82,
+      "outflow": 918281037.3999999,
+      "net_flow": 96008313.4200002,
+      "count": 9553
+    },
+    {
+      "month_year": "2025-10",
+      "inflow": 885721524.85,
+      "outflow": 1000472028.78,
+      "net_flow": -114750503.92999995,
+      "count": 9362
+    },
+    {
+      "month_year": "2025-11",
+      "inflow": 802701170.6099999,
+      "outflow": 738125133.35,
+      "net_flow": 64576037.25999987,
+      "count": 8728
+    },
+    {
+      "month_year": "2025-12",
+      "inflow": 891909065.26,
+      "outflow": 840473539.3700001,
+      "net_flow": 51435525.88999987,
+      "count": 9895
+    },
+    {
+      "month_year": "2026-01",
+      "inflow": 768188470.55,
+      "outflow": 891537164.1400001,
+      "net_flow": -123348693.59000015,
+      "count": 9199
+    },
+    {
+      "month_year": "2026-02",
+      "inflow": 757707079.25,
+      "outflow": 653505516.28,
+      "net_flow": 104201562.97000003,
+      "count": 8634
+    },
+    {
+      "month_year": "2026-03",
+      "inflow": 918613252.3399999,
+      "outflow": 983997005.51,
+      "net_flow": -65383753.17000008,
+      "count": 9830
+    },
+    {
+      "month_year": "2026-04",
+      "inflow": 900930073.51,
+      "outflow": 982383739.82,
+      "net_flow": -81453666.31000006,
+      "count": 9367
+    },
+    {
+      "month_year": "2026-05",
+      "inflow": 905639666.76,
+      "outflow": 868143722.8799999,
+      "net_flow": 37495943.880000114,
+      "count": 9385
+    },
+    {
+      "month_year": "2026-06",
+      "inflow": 1040498739.3599999,
+      "outflow": 936754845.6099999,
+      "net_flow": 103743893.75,
+      "count": 10290
+    },
+    {
+      "month_year": "2026-07",
+      "inflow": 1139182315.12,
+      "outflow": 1243265837.3,
+      "net_flow": -104083522.18000007,
+      "count": 10235
+    },
+    {
+      "month_year": "2026-08",
+      "inflow": 1276971804.7900002,
+      "outflow": 1083804183.11,
+      "net_flow": 193167621.6800003,
+      "count": 10307
+    },
+    {
+      "month_year": "2026-09",
+      "inflow": 1156002945.4,
+      "outflow": 1149309477.11,
+      "net_flow": 6693468.2900002,
+      "count": 10322
+    }
+  ],
+  "day_of_week": [
+    {
+      "dow": 0,
+      "day_name": "Понедельник",
+      "operations_count": 87564,
+      "inflow": 7969823871.25,
+      "outflow": 7069518023.39
+    },
+    {
+      "dow": 1,
+      "day_name": "Вторник",
+      "operations_count": 35705,
+      "inflow": 3488398493.37,
+      "outflow": 2981230762.39
+    },
+    {
+      "dow": 2,
+      "day_name": "Среда",
+      "operations_count": 32460,
+      "inflow": 3183481535.7299995,
+      "outflow": 3578933375.51
+    },
+    {
+      "dow": 3,
+      "day_name": "Четверг",
+      "operations_count": 32896,
+      "inflow": 3313743590.18,
+      "outflow": 2570940864.3799996
+    },
+    {
+      "dow": 4,
+      "day_name": "Пятница",
+      "operations_count": 32746,
+      "inflow": 2996656429.85,
+      "outflow": 4479667974.559999
+    },
+    {
+      "dow": 5,
+      "day_name": "Суббота",
+      "operations_count": 1049,
+      "inflow": 76053628.16,
+      "outflow": 143250396.65
+    },
+    {
+      "dow": 6,
+      "day_name": "Воскресенье",
+      "operations_count": 0,
+      "inflow": 0.0,
+      "outflow": 0.0
+    }
+  ]
+}

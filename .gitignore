@@ -1,0 +1,20 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Сырые выписки кейса (train/test) не коммитим и не раздаём как статику
+data/raw/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Служебные файлы AI Studio
+.aistudio/

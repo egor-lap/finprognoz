@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    image: finprognoz:latest
+    ports:
+      # Host port is configurable to avoid clashes: HOST_PORT=8080 docker compose up
+      - "${HOST_PORT:-3000}:3000"
+    environment:
+      AUTH_USER: ${AUTH_USER:?set AUTH_USER in .env}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:?set AUTH_PASSWORD in .env}
+    restart: unless-stopped
