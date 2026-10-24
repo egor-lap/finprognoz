@@ -2,7 +2,7 @@
 
 Данный проект содержит:
 1. **Полнофункциональный веб-сервис (React + Vite + Tailwind CSS + Express Backend)** — загрузка выписки, прогноз остатка на 30 дней с вероятностью кассового разрыва, рекомендации и симулятор «Что, если?». Прогноз считается на сервере в момент загрузки.
-2. **Python-скрипт EDA** (`scripts/run_eda_and_benchmark.py`) — офлайн-анализ `train.csv` и `test.csv` и Ridge-прогнозы в `data/`. Качество модели сайта измеряет бэктест `scripts/backtest.ts` (см. README).
+2. **Python-скрипт EDA** (`scripts/run_eda.py`) — офлайн-анализ `train.csv` и `test.csv`, сводка для слайда в `data/eda_summary.json`. Качество модели сайта измеряет бэктест `scripts/backtest.ts` (см. README).
 
 Сервис запускается только локально (localhost), развёртывание на внешнем сервере не предусмотрено.
 
@@ -55,9 +55,9 @@ npm start
 
 ---
 
-## Вариант 2. Повторный расчет EDA через Python
+## Вариант 2. Пересчёт EDA и графиков через Python
 
-Если вы хотите заново запустить обучение моделей на датасетах `train.csv` и `test.csv`, провести подбор гиперпараметров и обновить JSON-артефакты:
+Если нужно заново посчитать сводку EDA по `train.csv` и `test.csv`, слайд EDA или графики бэктеста:
 
 ### Требования:
 - **Python** версии 3.10 или 3.11 ([скачать с python.org](https://www.python.org/)).
@@ -75,19 +75,19 @@ npm start
      source venv/bin/activate
      ```
 
-2. Установите необходимые библиотеки для машинного обучения:
+2. Установите библиотеки:
    ```bash
-   pip install pandas numpy scikit-learn matplotlib
+   pip install pandas numpy matplotlib
    ```
 
 3. Запустите скрипт EDA:
    - **Windows:**
      ```bash
-     python scripts/run_eda_and_benchmark.py
+     python scripts/run_eda.py
      ```
    - **macOS / Linux:**
      ```bash
-     python3 scripts/run_eda_and_benchmark.py
+     python3 scripts/run_eda.py
      ```
 
-Скрипт прочитает `data/raw/train.csv` и `data/raw/test.csv`, обучит модели и обновит артефакты в `data/`.
+Скрипт прочитает `data/raw/train.csv` и `data/raw/test.csv` и обновит `data/eda_summary.json`. Слайд EDA: `python scripts/export_presentation_charts.py`. Графики бэктеста — в README, раздел «Качество прогноза».

@@ -22,6 +22,9 @@ plt.rcParams['axes.linewidth'] = 0.8
 with open('data/eda_summary.json', 'r', encoding='utf-8') as f:
     eda_data = json.load(f)
 
+n_ops = f"{eda_data['overall']['total_operations']:,}".replace(',', ' ')
+n_companies = eda_data['overall']['total_companies']
+
 # 4. EDA Insights: Category breakdown, Delays distribution & Cash Gap Risk
 fig, (ax_cat, ax_del, ax_gap) = plt.subplots(1, 3, figsize=(16, 5.2), dpi=220)
 fig.patch.set_facecolor('#0f172a')
@@ -45,7 +48,7 @@ ax_cat.grid(axis='x', linestyle='--', alpha=0.2, color='#94a3b8')
 for bar in bars_cat:
     w = bar.get_width()
     ax_cat.text(w + 0.3, bar.get_y() + bar.get_height()/2, f'{w:.1f} млрд', va='center', ha='left', color='#f8fafc', fontsize=8, fontweight='bold')
-ax_cat.set_title('Ключевые потоки (222 420 операций)', color='#f8fafc', fontsize=10, fontweight='bold')
+ax_cat.set_title(f'Ключевые потоки ({n_ops} операций)', color='#f8fafc', fontsize=10, fontweight='bold')
 
 # Delays distribution
 delays = eda_data['invoice_delays']['distribution']
@@ -61,197 +64,27 @@ for bar in bars_del:
     ax_del.text(bar.get_x() + bar.get_width()/2, h + 0.8, f'{h:.1f}%', ha='center', color='#f8fafc', fontsize=8, fontweight='bold')
 ax_del.set_title(f'Отсрочка платежей (Ср: {eda_data["invoice_delays"]["mean_delay_days"]} дн.)', color='#f8fafc', fontsize=10, fontweight='bold')
 
-# Cash Gap & Liquidity Risk Profile
+# Companies whose balance went below zero at least once in the statements
+with_gap = eda_data['cash_gap_stats']['companies_with_overdraft']
 gap_categories = [
-    'Стабильные\nкомпании\n(113 комп.)',
-    'Прогнозный\nдефицит ДДС\n(21 комп.)',
-    'Исторический\nовердрафт\n(16 комп.)'
+    f'Остаток ни разу\nне уходил в минус\n({n_companies - with_gap} комп.)',
+    f'Остаток уходил\nв минус\n({with_gap} комп.)'
 ]
-gap_counts = [113, 21, 16]
-gap_colors = ['#10b981', '#f59e0b', '#f43f5e']
+gap_counts = [n_companies - with_gap, with_gap]
+gap_colors = ['#10b981', '#f43f5e']
 bars_gap = ax_gap.bar(gap_categories, gap_counts, color=gap_colors, edgecolor='#334155', width=0.55)
 ax_gap.set_ylabel('Количество компаний', color='#cbd5e1', fontsize=9)
 ax_gap.tick_params(colors='#cbd5e1', labelsize=8)
 ax_gap.grid(axis='y', linestyle='--', alpha=0.2, color='#94a3b8')
 for bar in bars_gap:
     h = bar.get_height()
-    pct = round(h / 150 * 100, 1)
+    pct = round(h / n_companies * 100, 1)
     ax_gap.text(bar.get_x() + bar.get_width()/2, h + 1.8, f'{h} ({pct}%)', ha='center', color='#f8fafc', fontsize=8.5, fontweight='bold')
-ax_gap.set_title('Риск кассовых разрывов: 37 из 150 (24.7%)', color='#f43f5e', fontsize=10, fontweight='bold')
+ax_gap.set_title(f"Кассовые разрывы в истории: {with_gap} из {n_companies} ({eda_data['cash_gap_stats']['pct_companies_with_overdraft']}%)", color='#f43f5e', fontsize=10, fontweight='bold')
 
-fig.suptitle('EDA: Структура транзакций, платежная дисциплина и риски кассовых разрывов (150 компаний, 222 420 операций)', color='#f8fafc', fontsize=11.5, fontweight='bold', y=1.02)
+fig.suptitle(f'EDA: Структура транзакций, платежная дисциплина и кассовые разрывы ({n_companies} компаний, {n_ops} операций)', color='#f8fafc', fontsize=11.5, fontweight='bold', y=1.02)
 fig.tight_layout()
 plt.savefig(os.path.join(OUT_DIR, '4_eda_cash_flow_structure.png'), facecolor=fig.get_facecolor(), bbox_inches='tight')
 plt.close()
-
-# 5. Case Study: C004 vs C142 (Historical Retrospect vs 30-Day Forecast)
-fig, ax = plt.subplots(figsize=(11, 5.2), dpi=220)
-fig.patch.set_facecolor('#0f172a')
-ax.set_facecolor('#1e293b')
-
-categories = ['Текущий остаток (30.09.2026)', 'Мин. исторический остаток (Факт)', 'Вероятность кассового разрыва на 30 дней']
-# Normalized comparison for slide visual
-c004_stats = [292720 / 1000, -375632 / 1000, 83.6]
-c142_stats = [131482 / 1000, 58903 / 1000, 83.5]
-
-ax.axis('off')
-
-card_text = """
-КЕЙС-АНАЛИЗ: C004 (Строительство) vs C142 (Продуктовая розница)
-РАЗДЕЛЕНИЕ «ИСТОРИЧЕСКИЙ ФАКТ (2024-2026)» И «ПРОГНОЗНЫЙ РИСК (ОКТЯБРЬ 2026)»
-
-========================================================================================
-1. КОМПАНИЯ C004 (Строительство • Обучающая выборка Train):
-   • Исторический факт: В 2025 году фиксировался глубокий овердрафт (-375 632 руб., 457 отрицательных проводок).
-   • Текущий баланс на 30.09.2026: +292 720 руб. (сентябрьская зарплата уже выплачена).
-   • Прогноз на октябрь 2026: Выявлен риск разрыва (83.6%) в начале месяца из-за аренды (160 000 руб.) и закупок.
-   • Предупреждение системы: 02.10.2026 дефицит 120 010 руб. Рекомендовано согласовать сдвиг аренды на 5 дней.
-
-========================================================================================
-2. КОМПАНИЯ C142 (Продуктовая розница • Тестовая выборка Test):
-   • Исторический факт: В историческом периоде (лето 2026) овердрафтов НЕ БЫЛО (мин. остаток +58 903 руб.).
-   • Текущий баланс на 30.09.2026: Всего +131 482 руб. при ежедневном обороте свыше 220 000 руб.
-   • Прогноз на октябрь 2026: КРИТИЧЕСКИЙ КАССОВЫЙ РАЗРЫВ (вероятность 83.5%) уже 02.10.2026.
-   • Причина: Арендный платеж (ИП Арендодатель-764, ~365 750 руб.) превышает остаток счета более чем в 2.5 раза!
-   • Предупреждение системы: Дефицит от -827 000 руб. до -1 074 000 руб. Рекомендован овердрафт и факторинг.
-
-========================================================================================
-ВЫВОД АРХИТЕКТУРЫ:
-Эвристика «Если в истории не было овердрафта, значит компания стабильна» — КАТАСТРОФИЧЕСКИ ОШИБОЧНА.
-Только гибридная модель ML + Календарная декомпозиция выявляет скрытые риски на 30 дней вперед!
-"""
-
-ax.text(0.02, 0.95, card_text, color='#f1f5f9', fontsize=9.2, fontfamily='monospace', va='top')
-fig.tight_layout()
-plt.savefig(os.path.join(OUT_DIR, '5_c004_vs_c142_case_study.png'), facecolor=fig.get_facecolor(), bbox_inches='tight')
-plt.close()
-
-# 6. Architecture & Solution Pipeline (Slide 6)
-import matplotlib.patches as patches
-fig, ax = plt.subplots(figsize=(14, 7.5), dpi=220)
-fig.patch.set_facecolor('#0b0f19')
-ax.set_facecolor('#0b0f19')
-ax.set_xlim(0, 14)
-ax.set_ylim(0, 7.5)
-ax.axis('off')
-
-ax.text(0.5, 7.1, 'АРХИТЕКТУРА И ПАЙПЛАЙН РЕШЕНИЯ: СЕРВИС ПРОГНОЗИРОВАНИЯ ДДС И КАССОВЫХ РАЗРЫВОВ', 
-        color='#f8fafc', fontsize=14, fontweight='bold', va='center')
-ax.text(0.5, 6.75, 'Двухконтурная модель ML (Календарные детерминированные обязательства + Квантильный градиентный бустинг)', 
-        color='#94a3b8', fontsize=10.5, va='center')
-
-stages = [
-    {
-        'num': 'ЭТАП 1',
-        'title': 'Входные данные и ETL',
-        'subtitle': 'Парсинг выписок и обогащение',
-        'color': '#3b82f6',
-        'bg': '#1e293b',
-        'border': '#2563eb',
-        'items': [
-            '• Загрузка банковской выписки (CSV, XLSX, 1C)',
-            '• Train: 150 358 оп. (C001–C099)',
-            '• Test: 72 062 оп. (C100–C150)',
-            '• Детекция отсрочек: regex («от DD.MM.YYYY»)',
-            '• Обогащение производственным календарем РФ',
-            '• Агрегация до ежедневного временного ряда'
-        ]
-    },
-    {
-        'num': 'ЭТАП 2',
-        'title': 'Двухконтурный ML',
-        'subtitle': 'Декомпозиция ДДС потока',
-        'color': '#10b981',
-        'bg': '#1e293b',
-        'border': '#059669',
-        'items': [
-            '• Контур A: Календарные пики (Hard Rules):',
-            '   - ЕНП 28-го числа каждого месяца',
-            '   - Зарплата: аванс 25-го, расчет 10-го',
-            '   - Арендные циклы (1-5 число)',
-            '• Контур B: Квантильный HistGradientBoosting:',
-            '   - Прогноз P10, P50, P90 на горизонт 30 дней',
-            '   - Скользящие средние (MA7, MA14, MA30)',
-            '   - WAPE: 21.3% (против 38.4% у OLS)'
-        ]
-    },
-    {
-        'num': 'ЭТАП 3',
-        'title': 'Детектор разрывов',
-        'subtitle': 'Коллизии и оценка рисков',
-        'color': '#f59e0b',
-        'bg': '#1e293b',
-        'border': '#d97706',
-        'items': [
-            '• Алгоритмическая детекция коллизий:',
-            '   - Наложение налогов + зарплаты + аренды',
-            '   - Проверка баланса: остаток < 0',
-            '• Оценка параметров кассового разрыва:',
-            '   1. Точная сумма нехватки (дефицит в ₽)',
-            '   2. Вероятность наступления (%)',
-            '   3. Причина (конкретные совпавшие платежи)',
-            '   4. Риск-статус: Критический / Внимание'
-        ]
-    },
-    {
-        'num': 'ЭТАП 4',
-        'title': 'Движок предписаний',
-        'subtitle': 'Что делать & Симулятор',
-        'color': '#a855f7',
-        'bg': '#1e293b',
-        'border': '#9333ea',
-        'items': [
-            '• Персональные финансовые решения:',
-            '   - Факторинг дебиторской задолженности (₽)',
-            '   - Безопасный сдвиг счетов поставщиков',
-            '   - Расчет лимита овердрафта (+15% буфер)',
-            '• Интерактивный симулятор «Что если»:',
-            '   - Стресс-тест задержки дебиторов (+N дней)',
-            '   - Шок выручки (-20%..+20%)',
-            '   - Внеплановый крупный расход'
-        ]
-    }
-]
-
-for i, stage in enumerate(stages):
-    x = 0.5 + i * 3.3
-    y = 0.8
-    w = 3.1
-    h = 5.6
-    rect = patches.FancyBboxPatch((x, y), w, h, boxstyle='round,pad=0.1,rounding_size=0.15',
-                                 facecolor=stage['bg'], edgecolor=stage['border'], linewidth=1.5, alpha=0.95)
-    ax.add_patch(rect)
-    badge = patches.FancyBboxPatch((x + 0.15, y + h - 0.55), 1.0, 0.35, boxstyle='round,pad=0.04,rounding_size=0.08',
-                                  facecolor=stage['color'], edgecolor='none')
-    ax.add_patch(badge)
-    ax.text(x + 0.65, y + h - 0.38, stage['num'], color='#ffffff', fontsize=9, fontweight='bold', ha='center', va='center')
-    ax.text(x + 0.15, y + h - 0.95, stage['title'], color='#ffffff', fontsize=11, fontweight='bold', va='center')
-    ax.text(x + 0.15, y + h - 1.25, stage['subtitle'], color='#94a3b8', fontsize=8.5, va='center')
-    ax.plot([x + 0.15, x + w - 0.15], [y + h - 1.45, y + h - 1.45], color='#334155', linewidth=1)
-    item_y = y + h - 1.75
-    for item in stage['items']:
-        is_sub = item.startswith('   -')
-        ax.text(x + (0.28 if is_sub else 0.15), item_y, item.strip(), 
-                color='#cbd5e1' if not is_sub else '#94a3b8', 
-                fontsize=8.0 if is_sub else 8.4, 
-                va='center')
-        item_y -= 0.42
-    if i < 3:
-        arrow_x = x + w + 0.04
-        arrow_y = y + h / 2
-        ax.annotate('', xy=(arrow_x + 0.12, arrow_y), xytext=(arrow_x - 0.04, arrow_y),
-                    arrowprops=dict(arrowstyle='->', color='#64748b', lw=2.5))
-
-ax.text(0.5, 0.4, 'Стек технологий: Python (Scikit-Learn, LightGBM, Pandas, FastAPI/Express), React 19, TypeScript, Tailwind CSS, Recharts', 
-        color='#64748b', fontsize=8.5, va='center')
-ax.text(13.5, 0.4, 'Хакатон «Центр-Инвест» • 2026', color='#64748b', fontsize=8.5, ha='right', va='center')
-
-plt.tight_layout()
-plt.savefig(os.path.join(OUT_DIR, '6_architecture_solution_pipeline.png'), facecolor=fig.get_facecolor(), bbox_inches='tight')
-plt.close()
-
-# Also save benchmark_full_report.png for compatibility
-import shutil
-shutil.copyfile(os.path.join(OUT_DIR, '4_eda_cash_flow_structure.png'), os.path.join(OUT_DIR, 'benchmark_full_report.png'))
 
 print("All presentation PNG assets generated successfully in presentation_assets/")

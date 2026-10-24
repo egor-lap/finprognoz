@@ -272,10 +272,8 @@
   },
   "cash_gap_stats": {
     "total_overdraft_operations": 5739,
-    "companies_with_overdraft": 37,
-    "pct_companies_with_overdraft": 24.7,
-    "historical_overdraft_companies": 16,
-    "forecast_critical_gap_companies": 37,
+    "companies_with_overdraft": 16,
+    "pct_companies_with_overdraft": 10.7,
     "max_negative_balance": -14516977.39,
     "avg_negative_balance": -1728464.3229012026
   },

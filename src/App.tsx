@@ -447,9 +447,9 @@ export default function App() {
 
   // =========================================================================
   // INCREMENTAL DIFFERENTIAL UPDATE ENGINE (Задачи со звездочкой 2, 3, 4)
-  // Base ML forecast is computed once. Discrete manual operations and what-if
-  // perturbations are applied via O(30) discrete convolution and prefix sums
-  // in < 2ms WITHOUT re-training or re-running the heavy ML pipeline.
+  // The base forecast (analog-period paths) is computed once on the server. Discrete manual operations
+  // and what-if perturbations are applied to those paths via O(30) discrete convolution and prefix sums
+  // in < 2ms without another request to the server.
   // =========================================================================
   const { effectiveForecast, effectiveAlerts, effectiveCurrentBalance, summaryStats } = useMemo(() => {
     const t0 = performance.now();
@@ -747,7 +747,7 @@ export default function App() {
                   <Zap className="w-3 h-3 text-amber-400" />
                   <span>Инкрементальный пересчет: {recalcTimeMs} мс</span>
                   <span className="text-slate-500">|</span>
-                  <span className="text-emerald-400">без повторного прогона ML</span>
+                  <span className="text-emerald-400">без повторного запроса к серверу</span>
                 </div>
               )}
             </div>
@@ -840,7 +840,7 @@ export default function App() {
               <div className="max-w-3xl space-y-4">
                 <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-semibold">
                   <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                  Модель машинного обучения готова к работе
+                  Модель прогноза готова к работе
                 </div>
 
                 <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white leading-tight">
@@ -944,7 +944,7 @@ export default function App() {
                 </div>
                 <h3 className="text-base font-bold text-white">2. Прогноз и кассовые разрывы</h3>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Квантильная ML-модель рассчитывает траекторию остатка на 30 дней вперед (P10–P50–P90), находит дату и сумму нехватки
+                  Модель аналоговых периодов рассчитывает траекторию остатка на 30 дней вперед (P10–P50–P90), находит дату и сумму нехватки
                   денег, определяет совпавшие платежи и дает готовые рекомендации Банка Центр-инвест.
                 </p>
                 <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800 text-[11px] text-slate-500">
@@ -959,7 +959,7 @@ export default function App() {
                 <h3 className="text-base font-bold text-white">3. Симулятор «Что если»</h3>
                 <p className="text-xs text-slate-400 leading-relaxed">
                   Стресс-моделирование: задержка оплаты от клиента на 2 недели, спад выручки на 20%, внеплановый ремонт.
-                  Инкрементальный пересчет дельты происходит за 1-2 мс без повторного запуска тяжелой ML-модели.
+                  Инкрементальный пересчет дельты происходит за 1-2 мс без повторного расчета прогноза на сервере.
                 </p>
                 <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800 text-[11px] text-slate-500">
                   Ожидает загрузки данных выписки...
@@ -1610,7 +1610,7 @@ export default function App() {
                     </h2>
                     <p className="text-xs text-slate-400 mt-1">
                       Моделируйте задержки оплат клиентов, колебания спроса и внеплановые списания. Инкрементальный пересчет
-                      происходит мгновенно без повторного прогона ML-модели.
+                      происходит мгновенно без повторного расчета прогноза на сервере.
                     </p>
                   </div>
 
@@ -2097,7 +2097,7 @@ export default function App() {
               <div className="p-3 bg-indigo-950/30 border border-indigo-500/20 rounded-xl text-[11px] text-indigo-300 flex items-center gap-2">
                 <Zap className="w-4 h-4 text-indigo-400 flex-shrink-0" />
                 <span>
-                  Операция будет сразу учтена в 30-дневном прогнозе остатка инкрементально за &lt; 2 мс без перезапуска ML-модели.
+                  Операция будет сразу учтена в 30-дневном прогнозе остатка инкрементально за &lt; 2 мс без повторного расчета прогноза на сервере.
                 </span>
               </div>
 

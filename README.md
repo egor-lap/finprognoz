@@ -58,9 +58,9 @@ python scripts/plot_backtest.py
 |---|---|
 | `server.ts` | Express API: анализ выписки, прогноз, аутентификация |
 | `src/App.tsx` | Интерфейс: загрузка, прогноз, симулятор «что если» |
-| `data/` | Демо-выписка C052 (её отдаёт сервер); офлайн-результаты Python-скрипта: EDA и Ridge-прогнозы по 150 компаниям (сайт их не использует) |
+| `data/` | Демо-выписка C052 (её отдаёт сервер) и сводка EDA для слайдов `eda_summary.json` (сайт её не использует) |
 | `data/raw/` | Сырые train/test кейса (локально, в git не входят) |
 | `shared/cashflow.ts` | Модель прогноза (аналоговые периоды), рекомендации; общая для сервера и интерфейса |
-| `scripts/` | Бэктест (`backtest.ts`) и графики метрик (`plot_backtest.py`), Python EDA и Ridge-прогнозы (`run_eda_and_benchmark.py`), слайды EDA (`export_presentation_charts.py`) |
+| `scripts/` | Бэктест (`backtest.ts`) и графики метрик (`plot_backtest.py`), EDA датасета (`run_eda.py`) и слайд EDA (`export_presentation_charts.py`) |
 | `reports/` | Метрики бэктеста (`backtest_metrics.json`) |
 | `docs/` | Текст кейса (`case.pdf`) и описание датасета (`dataset_README.md`) |
