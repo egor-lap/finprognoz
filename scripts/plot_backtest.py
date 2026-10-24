@@ -29,7 +29,6 @@ TEXT_2 = '#52514e'
 GRID = '#e4e3df'
 MODEL_COLORS = {
     'analog': '#2a78d6',  # current model
-    'legacy': '#eb6834',  # previous sin/cos synthetic
     'naive': '#1baf7a',
     'trend': '#eda100',
 }
@@ -115,7 +114,7 @@ def base_rate_line(ax, x_label):
                 ha='right' if x_label[0] > 1 else 'left', fontsize=8.5, color=TEXT_2)
 
 
-GAP_MODELS = [('analog', 'текущая модель'), ('legacy', 'прежняя модель (sin/cos)')]
+GAP_MODELS = [('analog', 'аналоговые периоды')]
 
 
 def plot_gap_charts():
@@ -136,11 +135,11 @@ def plot_gap_charts():
     ax.set_ylabel('Значение метрики')
     ax.set_xlim(0, 100)
     ax.set_ylim(0, 1.05)
-    ax.legend(loc='upper right', ncol=2, frameon=False, fontsize=9)
+    ax.legend(loc='upper right', frameon=False, fontsize=9)
     save(fig, '1_precision_recall_by_threshold.png')
 
     # 2. Precision-recall curve (thresholds with enough signals only)
-    fig, ax = new_figure('Кривая Precision–Recall: текущая и прежняя модель', note=GAP_NOTE +
+    fig, ax = new_figure('Кривая Precision–Recall: аналоговые периоды', note=GAP_NOTE +
                          ' Подписи точек — порог вероятности. Пунктир — precision случайного угадывания (доля новых разрывов).')
     for key, label in GAP_MODELS:
         rows = m['classification'][key]['by_threshold']
@@ -178,7 +177,7 @@ for idx, (metric, title, fname) in enumerate([
     fig, ax = new_figure(title, note='Ошибка = прогноз остатка на конец дня − фактический остаток, усреднение по всем компаниям и срезам. '
                                      'Для текущей модели используется медиана P50.')
     ends = []
-    for key in ['analog', 'legacy', 'naive', 'trend']:
+    for key in ['analog', 'naive', 'trend']:
         ys = [v / 1e6 for v in reg[key][metric]]
         ax.plot(horizon, ys, '-', color=MODEL_COLORS[key], linewidth=2, label=reg[key]['name'])
         ax.plot([horizon[-1]], [ys[-1]], 'o', color=MODEL_COLORS[key], markersize=6, markeredgecolor=SURFACE, markeredgewidth=1.5, clip_on=False)
@@ -202,7 +201,7 @@ for idx, (metric, title, fname) in enumerate([
 # 5. Overall MAE / RMSE by model
 fig, ax = new_figure('MAE и RMSE прогноза остатка: сравнение подходов (среднее по дням 1–30)',
                      note='Меньше — лучше. Ошибки в рублях; на значения сильнее влияют крупные компании.')
-keys = ['analog', 'legacy', 'naive', 'trend']
+keys = ['analog', 'naive', 'trend']
 names = [textwrap.fill(reg[k]['name'], 22) for k in keys]
 x = list(range(len(keys)))
 w = 0.36

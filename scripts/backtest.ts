@@ -87,43 +87,10 @@ function actualEodByDay(rows: Row[], datasetEnd: string): Map<string, number> {
   return out;
 }
 
-// The forecast the service used before this model: sine/cosine around turnover per operation
-function legacySyntheticForecast(hist: Row[], balance: number, cutoff: string) {
-  const totalIn = hist.filter(r => r.isCredit).reduce((s, r) => s + r.amount, 0);
-  const totalOut = hist.filter(r => !r.isCredit).reduce((s, r) => s + r.amount, 0);
-  const a = (totalIn + totalOut) / (Math.max(1, hist.length) * 1.5);
-  const balances: number[] = [];
-  let cum = balance;
-  let maxProb = 0;
-  for (let i = 1; i <= HORIZON_DAYS; i++) {
-    const d = new Date(addDaysIso(cutoff, i) + 'T00:00:00Z');
-    const weekend = d.getUTCDay() === 0 || d.getUTCDay() === 6;
-    const dom = d.getUTCDate();
-    const predIn = weekend ? 0 : a * (0.85 + Math.sin(i * 0.7) * 0.25);
-    let predOut = weekend ? 0 : a * (0.8 + Math.cos(i * 0.7) * 0.2);
-    if (!weekend) {
-      if (dom === 10) predOut += a * 3.5;
-      else if (dom === 25) predOut += a * 2.8;
-      else if (dom === 28) predOut += a * 4.5;
-      else if (dom <= 3) predOut += a * 1.8;
-    }
-    cum += predIn - predOut;
-    balances.push(cum);
-    const spread = Math.sqrt(i) * (a * 0.75 + 15000);
-    const p10 = cum - spread * 1.28;
-    let prob = 5;
-    if (cum < 0) prob = Math.min(98, Math.round(75 + (Math.abs(cum) / (spread + 1)) * 20));
-    else if (p10 < 0) prob = Math.min(68, Math.round((-p10 / (spread * 2.56 + 1)) * 60 + 10));
-    maxProb = Math.max(maxProb, prob);
-  }
-  return { balances, gapProb: maxProb };
-}
-
-const MODELS = ['analog', 'legacy', 'naive', 'trend'] as const;
+const MODELS = ['analog', 'naive', 'trend'] as const;
 type Model = (typeof MODELS)[number];
 const MODEL_NAMES: Record<Model, string> = {
   analog: 'Аналоговые периоды (текущая модель)',
-  legacy: 'Синтетика sin/cos (прежняя версия)',
   naive: 'Наивная: остаток не меняется',
   trend: 'Линейный тренд за 90 дней'
 };
@@ -154,10 +121,10 @@ const datasetEnd = [...companies.values()].map(rows => rows[rows.length - 1].dat
 const CUTOFFS = monthEndCutoffs(datasetStart, datasetEnd, CUTOFF_COUNT);
 
 // Errors per model and horizon day; scores and labels for gap detection
-const absErr: Record<Model, number[][]> = { analog: [], legacy: [], naive: [], trend: [] };
-const sqErr: Record<Model, number[][]> = { analog: [], legacy: [], naive: [], trend: [] };
+const absErr: Record<Model, number[][]> = { analog: [], naive: [], trend: [] };
+const sqErr: Record<Model, number[][]> = { analog: [], naive: [], trend: [] };
 for (const m of MODELS) for (let h = 0; h < HORIZON_DAYS; h++) { absErr[m].push([]); sqErr[m].push([]); }
-const cases: Array<{ company: string; cutoff: string; actualGap: boolean; startNegative: boolean; analogProb: number; legacyProb: number }> = [];
+const cases: Array<{ company: string; cutoff: string; actualGap: boolean; startNegative: boolean; analogProb: number }> = [];
 const perCutoff: Record<string, { forecasts: number; gaps: number; maeAnalog: number[] }> = {};
 let skipped = 0;
 let actualFrom = '9999-12-31';
@@ -180,13 +147,11 @@ for (const [company, rows] of companies) {
     // Start from the actual balance at the cutoff, exactly as the service does with closingBalance
     const balance = actual.get(cutoff) ?? days[days.length - 1].eod;
     const sim = simulateForecast(days, balance);
-    const legacy = legacySyntheticForecast(hist, balance, cutoff);
     const net90 = days.slice(-90).reduce((s, d) => s + d.inflow - d.outflow, 0) / Math.min(90, days.length);
 
     const facts = horizon.map(d => actual.get(d)!);
     const preds: Record<Model, number[]> = {
       analog: sim.forecast.map(p => p.balance_p50),
-      legacy: legacy.balances,
       naive: horizon.map(() => balance),
       trend: horizon.map((_, i) => balance + net90 * (i + 1))
     };
@@ -198,7 +163,7 @@ for (const [company, rows] of companies) {
       });
     }
     const actualGap = facts.some(v => v < 0);
-    cases.push({ company, cutoff, actualGap, startNegative: balance < 0, analogProb: sim.gapProbabilityPct, legacyProb: legacy.gapProb });
+    cases.push({ company, cutoff, actualGap, startNegative: balance < 0, analogProb: sim.gapProbabilityPct });
     perCutoff[cutoff] ??= { forecasts: 0, gaps: 0, maeAnalog: [] };
     perCutoff[cutoff].forecasts++;
     if (actualGap) perCutoff[cutoff].gaps++;
@@ -270,8 +235,7 @@ const result = {
   new_gaps: gapCases.filter(c => c.actualGap).length,
   regression,
   classification: {
-    analog: { name: MODEL_NAMES.analog, by_threshold: prMetrics(c => c.analogProb) },
-    legacy: { name: MODEL_NAMES.legacy, by_threshold: prMetrics(c => c.legacyProb) }
+    analog: { name: MODEL_NAMES.analog, by_threshold: prMetrics(c => c.analogProb) }
   },
   per_cutoff: Object.fromEntries(Object.entries(perCutoff).map(([k, v]) => [k, { forecasts: v.forecasts, gaps: v.gaps, mae_analog: mean(v.maeAnalog) }]))
 };
