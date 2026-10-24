@@ -32,30 +32,8 @@ import {
   FileText,
   AlertOctagon
 } from 'lucide-react';
-
-interface ForecastPoint {
-  date: string;
-  balance_p50: number;
-  balance_p10: number;
-  balance_p90: number;
-  inflow: number;
-  outflow: number;
-  sched_outflow: number;
-  sched_description: string;
-  gap_probability_pct: number;
-  is_forecast: boolean;
-}
-
-interface GapAlert {
-  date: string;
-  severity: string;
-  probability_pct: number;
-  deficit_rub: number;
-  balance_p50: number;
-  balance_p10: number;
-  cause: string;
-  recommendation: string;
-}
+import { summarizePaths, buildGapAlerts } from '../shared/cashflow.ts';
+import type { ForecastPoint, GapAlert, Insight } from '../shared/cashflow.ts';
 
 interface StatementData {
   company_id: string;
@@ -95,6 +73,9 @@ interface StatementData {
   history: Array<{ date: string; balance: number; inflow: number; outflow: number }>;
   forecast: ForecastPoint[];
   alerts: GapAlert[];
+  insights?: Insight[];
+  paths?: number[][];
+  model?: { method: string; scenarios: number; gap_scenarios: number; horizon_days: number };
 }
 
 // Manual single-occurrence operation
@@ -486,9 +467,9 @@ export default function App() {
       }
     }
 
-    let runningBal = baseBalance;
-    const updatedForecast: ForecastPoint[] = [];
-    const generatedAlerts: GapAlert[] = [];
+    const adjusted: Array<{ pt: ForecastPoint; adjIn: number; adjOut: number; schedDesc: string }> = [];
+    const cumDelta: number[] = [];
+    let delta = 0;
 
     let totalSimInflow = 0;
     let totalSimOutflow = 0;
@@ -533,83 +514,43 @@ export default function App() {
       totalSimInflow += adjIn;
       totalSimOutflow += adjOut;
 
-      runningBal += (adjIn - adjOut);
-
-      // Quantile confidence band expansion
-      const spread = Math.sqrt(dayNum) * (Math.abs(runningBal) * 0.08 + 25000);
-      const p10 = runningBal - spread * 1.28;
-      const p90 = runningBal + spread * 1.28;
-
-      let gapProb = 5;
-      if (runningBal < safetyBuffer) {
-        gapProb = Math.min(99, Math.round(75 + ((safetyBuffer - runningBal) / (spread + 1)) * 25));
-      } else if (p10 < safetyBuffer) {
-        gapProb = Math.min(70, Math.round(((safetyBuffer - p10) / (spread * 2.56 + 1)) * 60 + 10));
-      }
+      // The scenario changes expected flows; the same shift is applied to every simulated path
+      delta += (adjIn - adjOut) - (pt.inflow - pt.outflow);
+      cumDelta.push(delta);
 
       let schedDesc = pt.sched_description;
       if (manualForDay && manualForDay.items.length > 0) {
         schedDesc = (schedDesc ? schedDesc + ' | ' : '') + 'Ручные операции: ' + manualForDay.items.join(', ');
       }
-
-      updatedForecast.push({
-        ...pt,
-        balance_p50: Math.round(runningBal),
-        balance_p10: Math.round(p10),
-        balance_p90: Math.round(p90),
-        inflow: Math.round(adjIn),
-        outflow: Math.round(adjOut),
-        sched_description: schedDesc,
-        gap_probability_pct: gapProb
-      });
-
-      // Gap Collision Detector
-      if (gapProb >= 25 || runningBal < safetyBuffer) {
-        const def = Math.max(0, -Math.round(p10), safetyBuffer - Math.round(runningBal));
-        const defStr = def.toLocaleString('ru-RU') + ' ₽';
-        const bufferStr = Math.round(def * 1.15).toLocaleString('ru-RU') + ' ₽';
-        const splitStr = Math.round(def * 0.5).toLocaleString('ru-RU') + ' ₽';
-
-        const recs: string[] = [];
-        if (schedDesc.includes('Зарплата') && schedDesc.includes('ЕНП')) {
-          recs.push(`1. Приоритет обязательств: Выплатить зарплату. По ЕНП подать заявление в ФНС о рассрочке (ст. 64 НК РФ) либо внести аванс ${splitStr}.`);
-        } else if (schedDesc.includes('ЕНП')) {
-          recs.push(`1. Налоговый маневр: Обеспечить бронь средств ${defStr} под ЕНП за 48 часов до списания ФНС, либо согласовать налоговый овердрафт.`);
-        } else if (schedDesc.includes('Зарплата')) {
-          recs.push(`1. Зарплатный транш: Подключить целевой зарплатный овердрафт Банка Центр-инвест со льготным грейс-периодом на ${defStr}.`);
-        } else if (schedDesc.includes('Аренда')) {
-          recs.push(`1. Перенос аренды: Направить арендодателю гарантийное письмо о сдвиге оплаты на 7 дней после инкассации выручки.`);
-        } else {
-          recs.push(`1. Сдвиг кредиторской задолженности: Согласовать с поставщиками частичную оплату 40% и перенос ${splitStr} на 5-7 дней.`);
-        }
-        recs.push(`2. Экспресс-факторинг: Передать дебиторскую задолженность Банку Центр-инвест — финансирование до 90% (${defStr}) за 2 часа.`);
-        recs.push(`3. Кредитная линия: Открыть лимит в Банке Центр-инвест на ${bufferStr} (дефицит ${defStr} + 15% буфер ликвидности).`);
-
-        generatedAlerts.push({
-          date: new Date(pt.date).toLocaleDateString('ru-RU'),
-          severity: runningBal < safetyBuffer || gapProb > 50 ? 'CRITICAL' : 'WARNING',
-          probability_pct: gapProb,
-          deficit_rub: def,
-          balance_p50: Math.round(runningBal),
-          balance_p10: Math.round(p10),
-          cause: schedDesc
-            ? `Совпадение критических выплат: ${schedDesc} при расчетном остатке ${formatExactRub(runningBal)}`
-            : `Превышение текущих операционных расходов над выручкой (дефицит: ${defStr})`,
-          recommendation: recs.join('\n')
-        });
-      }
+      adjusted.push({ pt, adjIn, adjOut, schedDesc });
     }
+
+    // Quantiles and gap probability over the historical scenarios returned by the server
+    const dist = summarizePaths(baseBalance, statementData?.paths ?? [], cumDelta, safetyBuffer);
+    const updatedForecast: ForecastPoint[] = adjusted.map(({ pt, adjIn, adjOut, schedDesc }, idx) => ({
+      ...pt,
+      balance_p50: Math.round(dist.p50[idx]),
+      balance_p10: Math.round(dist.p10[idx]),
+      balance_p90: Math.round(dist.p90[idx]),
+      inflow: Math.round(adjIn),
+      outflow: Math.round(adjOut),
+      sched_description: schedDesc,
+      gap_probability_pct: dist.gapProb[idx]
+    }));
+    const generatedAlerts = buildGapAlerts(updatedForecast, safetyBuffer);
 
     const minP50 = updatedForecast.length > 0 ? Math.min(...updatedForecast.map(f => f.balance_p50)) : 0;
     const minP10 = updatedForecast.length > 0 ? Math.min(...updatedForecast.map(f => f.balance_p10)) : 0;
-    const maxGapProb = updatedForecast.length > 0 ? Math.max(...updatedForecast.map(f => f.gap_probability_pct)) : 0;
+    // Probability that the balance drops below the buffer on any day of the horizon
+    const maxGapProb = updatedForecast.length > 0 ? dist.overallGapProb : 0;
+    const hasRiskInsights = (statementData?.insights ?? []).some(i => i.severity !== 'INFO');
 
     let riskLevel: 'CRITICAL' | 'WARNING' | 'STABLE' = 'STABLE';
     let statusLabel = 'Стабильное состояние (В норме)';
     if (maxGapProb >= 50 || minP50 < safetyBuffer) {
       riskLevel = 'CRITICAL';
       statusLabel = 'Критический кассовый разрыв';
-    } else if (maxGapProb >= 20 || minP10 < safetyBuffer) {
+    } else if (maxGapProb >= 10 || minP10 < safetyBuffer || hasRiskInsights) {
       riskLevel = 'WARNING';
       statusLabel = 'Повышенный риск кассового разрыва';
     }
@@ -1115,6 +1056,7 @@ export default function App() {
                       {(statementData ? (statementData.net_cash_flow || 0) : summaryStats.netFlow) >= 0
                         ? 'Положительный чистый приток'
                         : 'Дефицитный отток средств'}
+                      {statementData && ' за весь период выписки'}
                     </div>
                   </div>
                 </div>
@@ -1330,13 +1272,18 @@ export default function App() {
                     <p className="text-xs text-slate-300 max-w-3xl leading-relaxed">
                       Квантильный прогноз на 30 дней вперед с учетом периодических обязательств (ЕНП 28-го, аванс 25-го, расчет 10-го)
                       и введенных разовых операций.
+                      {statementData?.model && (
+                        statementData.model.method === 'analog_periods'
+                          ? ` Построен по ${statementData.model.scenarios} реальным 30-дневным периодам истории, начинавшимся около того же числа месяца: вероятность разрыва — доля периодов, в которых остаток ушёл бы ниже порога.`
+                          : ` Истории меньше двух месяцев, поэтому прогноз собран из ${statementData.model.scenarios} сценариев случайных дней выписки.`
+                      )}
                     </p>
                   </div>
 
                   <div className="flex items-center gap-3">
                     <div className="text-right">
                       <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">
-                        Макс. вероятность разрыва
+                        Вероятность разрыва за 30 дней
                       </div>
                       <div className="text-2xl font-bold font-mono">
                         {summaryStats.maxGapProb.toFixed(1)}%
@@ -1550,10 +1497,54 @@ export default function App() {
                       ))
                     ) : (
                       <div className="p-6 bg-slate-950/40 border border-slate-800 rounded-xl text-center text-xs text-slate-400">
-                        Кассовых разрывов не прогнозируется. Операционная ликвидность находится в норме.
+                        {(statementData?.insights ?? []).some(i => i.severity !== 'INFO')
+                          ? 'Конкретных дней разрыва в типичном сценарии нет, но есть риски ликвидности — см. рекомендации ниже.'
+                          : 'Кассовых разрывов не прогнозируется. Операционная ликвидность находится в норме.'}
                       </div>
                     )}
                   </div>
+
+                  {/* Liquidity diagnostics that apply even when no specific gap day is forecast */}
+                  {statementData?.insights && statementData.insights.length > 0 && (
+                    <div className="space-y-3 pt-2">
+                      <div className="text-[11px] font-bold uppercase text-slate-400 tracking-wider flex items-center gap-1.5">
+                        <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+                        Диагностика ликвидности и рекомендации
+                      </div>
+                      {statementData.insights.map((ins, idx) => (
+                        <div
+                          key={idx}
+                          className={`p-4 rounded-xl border space-y-2 ${
+                            ins.severity === 'CRITICAL'
+                              ? 'bg-rose-950/20 border-rose-500/30'
+                              : ins.severity === 'WARNING'
+                              ? 'bg-amber-950/20 border-amber-500/30'
+                              : 'bg-slate-950/40 border-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-start gap-2">
+                            <span
+                              className={`shrink-0 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                                ins.severity === 'CRITICAL'
+                                  ? 'bg-rose-500 text-white'
+                                  : ins.severity === 'WARNING'
+                                  ? 'bg-amber-500 text-slate-950'
+                                  : 'bg-slate-600 text-white'
+                              }`}
+                            >
+                              {ins.severity === 'CRITICAL' ? 'Критично' : ins.severity === 'WARNING' ? 'Внимание' : 'Инфо'}
+                            </span>
+                            <span className="text-sm font-semibold text-white leading-snug">{ins.title}</span>
+                          </div>
+                          <p className="text-xs text-slate-300 leading-relaxed">{ins.detail}</p>
+                          <p className="text-xs text-emerald-300 leading-relaxed">
+                            <Zap className="w-3.5 h-3.5 inline mr-1 text-emerald-400" />
+                            {ins.recommendation}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1827,7 +1818,7 @@ export default function App() {
                     </div>
 
                     <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-1">
-                      <div className="text-[11px] text-slate-400 uppercase font-semibold">Макс. вероятность разрыва</div>
+                      <div className="text-[11px] text-slate-400 uppercase font-semibold">Вероятность разрыва за 30 дней</div>
                       <div className="text-xl font-bold font-mono text-rose-400">
                         {summaryStats.maxGapProb.toFixed(1)}%
                       </div>
@@ -1836,7 +1827,7 @@ export default function App() {
                     <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-1">
                       <div className="text-[11px] text-slate-400 uppercase font-semibold">Рекомендуемый лимит ВКЛ</div>
                       <div className="text-xl font-bold font-mono text-indigo-400">
-                        {formatExactRub(Math.max(0, -summaryStats.minP50) * 1.15 || 500000)}
+                        {summaryStats.minP10 < safetyBuffer ? formatExactRub((safetyBuffer - summaryStats.minP10) * 1.15) : "Не требуется"}
                       </div>
                     </div>
                   </div>

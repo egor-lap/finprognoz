@@ -5,6 +5,8 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
+import { buildDailySeries, simulateForecast, buildGapAlerts, buildInsights, detectRecurring } from './shared/cashflow.ts';
+import type { StatementOp } from './shared/cashflow.ts';
 
 dotenv.config({ quiet: true });
 
@@ -270,7 +272,7 @@ app.post('/api/analyze-statement', (req: Request, res: Response) => {
     }
 
     // Validate and normalize: rows without a valid date or numeric amount are skipped, not fatal
-    const sortedOps: Array<{ date: string; amount: number; isCredit: boolean; category: string; counterparty: string }> = [];
+    const sortedOps: StatementOp[] = [];
     for (const op of operations) {
       if (!op || typeof op !== 'object') continue;
       const date = normalizeDate(op.date);
@@ -285,7 +287,8 @@ app.post('/api/analyze-statement', (req: Request, res: Response) => {
         amount: Math.abs(rawAmount),
         isCredit,
         category: typeof op.category === 'string' && op.category ? op.category : (isCredit ? 'Выручка от покупателей' : 'Оплата поставщикам'),
-        counterparty: typeof op.counterparty === 'string' && op.counterparty ? op.counterparty : (isCredit ? 'Покупатель' : 'Контрагент')
+        counterparty: typeof op.counterparty === 'string' && op.counterparty ? op.counterparty : (isCredit ? 'Покупатель' : 'Контрагент'),
+        purpose: typeof op.purpose === 'string' ? op.purpose : ''
       });
     }
     const skippedOperations = operations.length - sortedOps.length;
@@ -340,123 +343,25 @@ app.post('/api/analyze-statement', (req: Request, res: Response) => {
       });
     }
 
-    const avgDailyFlow = (totalInflow + totalOutflow) / (Math.max(1, sortedOps.length) * 1.5);
-    const futureDates = [];
-    let cumBal = runningBal;
-    const alerts: Array<any> = [];
-
-    // Dates are UTC midnight, so use UTC getters: results must not depend on the server timezone
-    const lastDate = new Date(sortedOps[sortedOps.length - 1].date + 'T00:00:00Z');
-    for (let i = 1; i <= 30; i++) {
-      const d = new Date(lastDate);
-      d.setUTCDate(d.getUTCDate() + i);
-      const isWeekend = d.getUTCDay() === 0 || d.getUTCDay() === 6;
-      const dom = d.getUTCDate();
-
-      const predIn = isWeekend ? 0 : avgDailyFlow * (0.85 + Math.sin(i * 0.7) * 0.25);
-      let predOut = isWeekend ? 0 : avgDailyFlow * (0.80 + Math.cos(i * 0.7) * 0.20);
-      let schedOut = 0;
-      let schedDesc = '';
-
-      if (dom === 10 && !isWeekend) {
-        schedOut = avgDailyFlow * 3.5;
-        schedDesc = 'Зарплата: Окончательный расчет (10-е число)';
-      } else if (dom === 25 && !isWeekend) {
-        schedOut = avgDailyFlow * 2.8;
-        schedDesc = 'Зарплата: Аванс (25-е число)';
-      } else if (dom === 28 && !isWeekend) {
-        schedOut = avgDailyFlow * 4.5;
-        schedDesc = 'Единый налоговый платеж (ЕНП 28-го числа)';
-      } else if (dom <= 3 && !isWeekend) {
-        schedOut = avgDailyFlow * 1.8;
-        schedDesc = 'Аренда помещений и сервисов';
-      }
-
-      predOut += schedOut;
-      cumBal += (predIn - predOut);
-
-      const spread = Math.sqrt(i) * (avgDailyFlow * 0.75 + 15000);
-      const p10 = cumBal - spread * 1.28;
-      const p90 = cumBal + spread * 1.28;
-      let gapProb = 5;
-      if (cumBal < 0) {
-        gapProb = Math.min(98, Math.round(75 + (Math.abs(cumBal) / (spread + 1)) * 20));
-      } else if (p10 < 0) {
-        gapProb = Math.min(68, Math.round((-p10 / (spread * 2.56 + 1)) * 60 + 10));
-      }
-
-      futureDates.push({
-        date: d.toISOString().split('T')[0],
-        balance_p50: Math.round(cumBal),
-        balance_p10: Math.round(p10),
-        balance_p90: Math.round(p90),
-        inflow: Math.round(predIn),
-        outflow: Math.round(predOut),
-        sched_outflow: Math.round(schedOut),
-        sched_description: schedDesc || 'Текущая операционная деятельность',
-        gap_probability_pct: gapProb,
-        is_forecast: true
-      });
-
-      if (gapProb >= 25 || cumBal < 0) {
-        const def = Math.max(0, -Math.round(p10), -Math.round(cumBal));
-        const defStr = def.toLocaleString('ru-RU') + ' ₽';
-        const bufferStr = Math.round(def * 1.15).toLocaleString('ru-RU') + ' ₽';
-        const splitStr = Math.round(def * 0.5).toLocaleString('ru-RU') + ' ₽';
-
-        const recs: string[] = [];
-        if (schedDesc.includes('Зарплата') && schedDesc.includes('ЕНП')) {
-          recs.push(`1. Приоритет обязательств: Выплатить зарплату. По ЕНП подать заявление в ФНС о рассрочке (ст. 64 НК РФ) либо внести аванс ${splitStr}.`);
-        } else if (schedDesc.includes('ЕНП')) {
-          recs.push(`1. Налоговый маневр: Обеспечить бронь средств ${defStr} под ЕНП за 48 часов до списания ФНС, либо согласовать налоговый овердрафт.`);
-        } else if (schedDesc.includes('Зарплата')) {
-          recs.push(`1. Зарплатный транш: Подключить целевой зарплатный овердрафт со льготным грейс-периодом на ${defStr}.`);
-        } else if (schedDesc.includes('Аренда')) {
-          recs.push(`1. Перенос аренды: Направить арендодателю гарантийное письмо о сдвиге оплаты на 7 дней после инкассации выручки.`);
-        } else {
-          recs.push(`1. Сдвиг кредиторской задолженности: Согласовать с поставщиками частичную оплату 40% и перенос ${splitStr} на 5-7 дней.`);
-        }
-        recs.push(`2. Экспресс-факторинг: Передать дебиторскую задолженность Банку Центр-инвест — финансирование до 90% (${defStr}) за 2 часа.`);
-        recs.push(`3. Кредитная линия: Открыть лимит в Банке Центр-инвест на ${bufferStr} (дефицит ${defStr} + 15% буфер ликвидности).`);
-
-        alerts.push({
-          date: d.toLocaleDateString('ru-RU', { timeZone: 'UTC' }),
-          severity: cumBal < 0 || gapProb > 50 ? 'CRITICAL' : 'WARNING',
-          probability_pct: gapProb,
-          deficit_rub: def,
-          balance_p50: Math.round(cumBal),
-          balance_p10: Math.round(p10),
-          cause: schedDesc ? `Совпадение критических выплат: ${schedDesc} при дефиците остатка ${defStr}` : `Превышение текущих операционных расходов над выручкой (дефицит: ${defStr})`,
-          recommendation: recs.join('\n')
-        });
-      }
-    }
+    // Empirical forecast: replay analogous historical periods from today's balance (see shared/cashflow.ts)
+    const days = buildDailySeries(sortedOps, openingBalance);
+    const sim = simulateForecast(days, runningBal);
+    const futureDates = sim.forecast;
+    const alerts = buildGapAlerts(futureDates, 0);
+    const insights = buildInsights(days, runningBal, sim);
 
     const minP50 = Math.min(...futureDates.map(f => f.balance_p50));
     const minP10 = Math.min(...futureDates.map(f => f.balance_p10));
-    const maxGapProb = Math.max(...futureDates.map(f => f.gap_probability_pct));
+    const maxGapProb = sim.gapProbabilityPct;
 
     let riskLevel: 'CRITICAL' | 'WARNING' | 'STABLE' = 'STABLE';
     let statusLabel = 'Стабильное состояние (В норме)';
     if (maxGapProb >= 50 || minP50 < 0) {
       riskLevel = 'CRITICAL';
       statusLabel = 'Критический кассовый разрыв';
-    } else if (maxGapProb >= 20 || minP10 < 0) {
+    } else if (maxGapProb >= 10 || minP10 < 0 || insights.some(i => i.severity !== 'INFO')) {
       riskLevel = 'WARNING';
       statusLabel = 'Повышенный риск кассового разрыва';
-    }
-
-    if (alerts.length === 0) {
-      alerts.push({
-        date: '30-дневный горизонт',
-        severity: 'STABLE',
-        probability_pct: maxGapProb,
-        deficit_rub: 0,
-        balance_p50: minP50,
-        balance_p10: minP10,
-        cause: 'Кассовых разрывов не прогнозируется: операционные поступления стабильно превышают календарные обязательства.',
-        recommendation: 'Поддерживать плановую платежную дисциплину. Риски дефицита ликвидности отсутствуют.'
-      });
     }
 
     res.json({
@@ -487,14 +392,14 @@ app.post('/api/analyze-statement', (req: Request, res: Response) => {
         direction: data.direction,
         count: data.count
       })).sort((a, b) => b.total - a.total).slice(0, 8),
-      recurring_items: [
-        { category_name: 'Зарплата: Окончательный расчет', counterparty: 'Сотрудники компании', typical_day: 10, typical_amount: Math.round(avgDailyFlow * 3.5) },
-        { category_name: 'Зарплата: Аванс', counterparty: 'Сотрудники компании', typical_day: 25, typical_amount: Math.round(avgDailyFlow * 2.8) },
-        { category_name: 'Налоги и взносы (ЕНП)', counterparty: 'ФНС России (ЕНП)', typical_day: 28, typical_amount: Math.round(avgDailyFlow * 4.5) }
-      ],
+      recurring_items: detectRecurring(sortedOps),
       history: historyPoints.slice(-60),
       forecast: futureDates,
-      alerts
+      alerts,
+      insights,
+      // Cumulative net flow of every simulated path: lets the client re-run what-if scenarios on the same distribution
+      paths: sim.paths,
+      model: { method: sim.method, scenarios: sim.paths.length, gap_scenarios: sim.gapPaths, horizon_days: 30 }
     });
   } catch (err) {
     sendServerError(res, err);

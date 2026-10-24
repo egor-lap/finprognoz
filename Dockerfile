@@ -7,6 +7,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY index.html vite.config.ts tsconfig.json ./
 COPY src ./src
+COPY shared ./shared
 RUN npm run build
 
 # ---- runtime ----
@@ -18,6 +19,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund --ignore-scripts && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY server.ts ./
+COPY shared ./shared
 # Only precomputed artifacts and the demo statement; raw train/test stay out of the image
 COPY data/*.json data/*.csv ./data/
 USER node
