@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""
-Comprehensive EDA, Multi-Model Benchmarking, and All-Company Cash Flow Forecasting Engine.
-Processes 150 companies (Train: C001-C099, Test: C100-C150) across 222,420 transactions (150,358 Train + 72,062 Test).
-Strictly separates Historical Facts (2024-2026 retrospect) from Forecast Risks (30-day projection).
-"""
 import os
 import re
 import json
@@ -647,9 +642,7 @@ with open(os.path.join(OUT_DIR, 'companies_index.json'), 'w', encoding='utf-8') 
 
 print("Saved sample_forecasts.json and companies_index.json for 150 companies.")
 
-# -------------------------------------------------------------
-# 3. Model Benchmark Cross-Validation
-# -------------------------------------------------------------
+
 print("=== 4. Benchmarking Model Candidates on Out-of-Sample CV ===")
 
 benchmark_records = [
