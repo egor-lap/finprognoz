@@ -4,7 +4,8 @@
 // cutoff and compared with the actual end-of-day balances of the next 30 days:
 //   - balance accuracy (MAE / RMSE by horizon day) for our model and three baselines;
 //   - cash-gap detection (precision / recall by probability threshold), where an actual gap is
-//     a negative end-of-day balance on any day of the horizon.
+//     a negative end-of-day balance on any day of the horizon. Only forecasts made before the gap
+//     count: if the balance is already negative at the cutoff, the gap is not a prediction.
 //
 // Run:  node scripts/backtest.ts [statement.csv ...]   (default: data/raw/train.csv data/raw/test.csv)
 // Output: reports/backtest_metrics.json (plotted by scripts/plot_backtest.py)
@@ -17,6 +18,7 @@ import type { StatementOp } from '../shared/cashflow.ts';
 const CUTOFFS = ['2026-03-31', '2026-04-30', '2026-05-31', '2026-06-30', '2026-07-31', '2026-08-31'];
 const MIN_HISTORY_DAYS = 90;
 const THRESHOLDS = Array.from({ length: 19 }, (_, i) => (i + 1) * 5); // 5% .. 95%
+const GAP_EVAL_RULE = 'только прогнозы с неотрицательным остатком на дату среза (разрыв ещё не наступил)';
 const OUT_FILE = 'reports/backtest_metrics.json';
 const STANDARD_COLUMNS = ['company_id', 'operation_id', 'operation_date', 'amount', 'direction', 'counterparty_inn', 'counterparty_name', 'payment_purpose', 'balance_eod'];
 
@@ -129,7 +131,7 @@ const datasetEnd = [...companies.values()].map(rows => rows[rows.length - 1].dat
 const absErr: Record<Model, number[][]> = { analog: [], legacy: [], naive: [], trend: [] };
 const sqErr: Record<Model, number[][]> = { analog: [], legacy: [], naive: [], trend: [] };
 for (const m of MODELS) for (let h = 0; h < HORIZON_DAYS; h++) { absErr[m].push([]); sqErr[m].push([]); }
-const cases: Array<{ company: string; cutoff: string; actualGap: boolean; analogProb: number; legacyProb: number }> = [];
+const cases: Array<{ company: string; cutoff: string; actualGap: boolean; startNegative: boolean; analogProb: number; legacyProb: number }> = [];
 const perCutoff: Record<string, { forecasts: number; gaps: number; maeAnalog: number[] }> = {};
 let skipped = 0;
 let actualFrom = '9999-12-31';
@@ -143,6 +145,11 @@ for (const [company, rows] of companies) {
     const horizon = Array.from({ length: HORIZON_DAYS }, (_, i) => addDaysIso(cutoff, i + 1));
     if (hist.length === 0 || !actual.has(horizon[HORIZON_DAYS - 1])) { skipped++; continue; }
     const days = buildDailySeries(hist, opening);
+    // Pad days without operations up to the cutoff so the forecast starts on cutoff + 1, aligned with the facts
+    while (days.length > 0 && days[days.length - 1].date < cutoff) {
+      const last = days[days.length - 1];
+      days.push({ date: addDaysIso(last.date, 1), inflow: 0, outflow: 0, sched: 0, schedNames: [], ownerOut: 0, eod: last.eod });
+    }
     if (days.length < MIN_HISTORY_DAYS) { skipped++; continue; }
     // Start from the actual balance at the cutoff, exactly as the service does with closingBalance
     const balance = actual.get(cutoff) ?? days[days.length - 1].eod;
@@ -165,7 +172,7 @@ for (const [company, rows] of companies) {
       });
     }
     const actualGap = facts.some(v => v < 0);
-    cases.push({ company, cutoff, actualGap, analogProb: sim.gapProbabilityPct, legacyProb: legacy.gapProb });
+    cases.push({ company, cutoff, actualGap, startNegative: balance < 0, analogProb: sim.gapProbabilityPct, legacyProb: legacy.gapProb });
     perCutoff[cutoff] ??= { forecasts: 0, gaps: 0, maeAnalog: [] };
     perCutoff[cutoff].forecasts++;
     if (actualGap) perCutoff[cutoff].gaps++;
@@ -186,15 +193,29 @@ const regression = Object.fromEntries(
   }])
 );
 
+// 95% Wilson interval for a share k / n: stays inside [0, 1] and is honest about small samples
+function wilson(k: number, n: number): [number, number] | null {
+  if (n === 0) return null;
+  const z = 1.96;
+  const p = k / n;
+  const d = 1 + (z * z) / n;
+  const center = (p + (z * z) / (2 * n)) / d;
+  const half = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / d;
+  return [Math.max(0, center - half), Math.min(1, center + half)];
+}
+
+// Gap detection is scored only on forecasts made before the gap
+const gapCases = cases.filter(c => !c.startNegative);
+
 function prMetrics(score: (c: (typeof cases)[number]) => number) {
   return THRESHOLDS.map(t => {
-    const tp = cases.filter(c => c.actualGap && score(c) >= t).length;
-    const fp = cases.filter(c => !c.actualGap && score(c) >= t).length;
-    const fn = cases.filter(c => c.actualGap && score(c) < t).length;
+    const tp = gapCases.filter(c => c.actualGap && score(c) >= t).length;
+    const fp = gapCases.filter(c => !c.actualGap && score(c) >= t).length;
+    const fn = gapCases.filter(c => c.actualGap && score(c) < t).length;
     const precision = tp + fp > 0 ? tp / (tp + fp) : null;
     const recall = tp + fn > 0 ? tp / (tp + fn) : 0;
     const f1 = precision !== null && precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
-    return { threshold: t, tp, fp, fn, precision, recall, f1 };
+    return { threshold: t, tp, fp, fn, signals: tp + fp, precision, precision_ci95: wilson(tp, tp + fp), recall, f1 };
   });
 }
 
@@ -209,6 +230,10 @@ const result = {
   skipped,
   gap_definition: 'остаток на конец дня ниже 0 ₽ хотя бы в один день горизонта',
   actual_gaps: cases.filter(c => c.actualGap).length,
+  gap_eval_rule: GAP_EVAL_RULE,
+  already_negative: cases.length - gapCases.length,
+  gap_eval_forecasts: gapCases.length,
+  new_gaps: gapCases.filter(c => c.actualGap).length,
   regression,
   classification: {
     analog: { name: MODEL_NAMES.analog, by_threshold: prMetrics(c => c.analogProb) },
@@ -223,9 +248,11 @@ fs.writeFileSync(OUT_FILE, JSON.stringify(result, null, 2));
 const fmt = (v: number) => Math.round(v).toLocaleString('ru-RU');
 console.log(`Компаний: ${result.companies}, прогнозов: ${result.forecasts}, пропущено: ${skipped}, фактических разрывов: ${result.actual_gaps}`);
 console.log(`Факт: ${actualFrom} .. ${actualTo}`);
+console.log(`Метрики разрыва: ${result.gap_eval_forecasts} прогнозов до разрыва, новых разрывов ${result.new_gaps}; исключено уже отрицательных на срезе: ${result.already_negative}`);
 for (const m of MODELS) console.log(`${MODEL_NAMES[m].padEnd(38)} MAE ${fmt(regression[m].mae).padStart(12)}  RMSE ${fmt(regression[m].rmse).padStart(12)}`);
 for (const t of [10, 20, 30, 50]) {
   const a = result.classification.analog.by_threshold.find(x => x.threshold === t)!;
-  console.log(`порог ${t}%: precision ${a.precision?.toFixed(2) ?? '—'}, recall ${a.recall.toFixed(2)} (TP ${a.tp}, FP ${a.fp}, FN ${a.fn})`);
+  const ci = a.precision_ci95 ? ` [${a.precision_ci95[0].toFixed(2)}; ${a.precision_ci95[1].toFixed(2)}]` : '';
+  console.log(`порог ${t}%: precision ${a.precision?.toFixed(2) ?? '—'}${ci}, recall ${a.recall.toFixed(2)} (TP ${a.tp}, FP ${a.fp}, FN ${a.fn})`);
 }
 console.log(`Сохранено: ${OUT_FILE}`);

@@ -31,7 +31,9 @@ MODEL_COLORS = {
     'naive': '#1baf7a',
     'trend': '#eda100',
 }
-METRIC_COLORS = {'precision': '#2a78d6', 'recall': '#eb6834', 'f1': '#1baf7a'}
+METRIC_COLORS = {'precision': '#2a78d6', 'recall': '#eb6834'}
+# Precision from fewer signals is noise ("4 of 4" reads as 1.00), so it is not drawn
+MIN_SIGNALS = 5
 
 with open(IN_FILE, 'r', encoding='utf-8') as f:
     m = json.load(f)
@@ -47,9 +49,11 @@ PERIOD = (
     f"{m['companies']} компаний, {m['forecasts']} прогнозов, горизонт {m['horizon_days']} дней после каждого среза"
 )
 GAP_NOTE = (
-    f"Разрыв = {m['gap_definition']}. Фактических разрывов: {m['actual_gaps']} из {m['forecasts']} "
-    f"({m['actual_gaps'] / m['forecasts']:.1%})."
+    f"Разрыв = {m['gap_definition']}. Считаются только прогнозы, сделанные до разрыва: {m['gap_eval_forecasts']} прогнозов, "
+    f"новых разрывов {m['new_gaps']}. Ещё {m['already_negative']} прогнозов сделаны, когда остаток уже был в минусе, — это не прогноз, "
+    f"они исключены. Precision показан только при ≥{MIN_SIGNALS} сигналах, полоса — 95% интервал."
 )
+BASE_RATE = m['new_gaps'] / m['gap_eval_forecasts']
 
 plt.rcParams.update({
     'font.family': 'DejaVu Sans',
@@ -92,45 +96,56 @@ def save(fig, name):
     print('saved', path)
 
 
-# 1. Precision / recall / F1 by threshold
-an = m['classification']['analog']['by_threshold']
-lg = m['classification']['legacy']['by_threshold']
-th = [r['threshold'] for r in an]
+def precision_points(rows):
+    """(threshold, precision, ci_low, ci_high) for thresholds with at least MIN_SIGNALS signals."""
+    return [(r['threshold'], r['precision'], *r['precision_ci95']) for r in rows
+            if r['precision'] is not None and r['signals'] >= MIN_SIGNALS]
+
+
+def base_rate_line(ax, x_label):
+    ax.axhline(BASE_RATE, color=TEXT_2, linestyle=':', linewidth=1.2)
+    ax.annotate(f'случайное угадывание {BASE_RATE:.1%}', x_label, xytext=(0, 5), textcoords='offset points',
+                ha='right' if x_label[0] > 1 else 'left', fontsize=8.5, color=TEXT_2)
+
+
+GAP_MODELS = [('analog', 'текущая модель'), ('legacy', 'прежняя модель (sin/cos)')]
+
+# 1. Precision (with 95% band) and recall by threshold: color = model, line style = metric
 fig, ax = new_figure('Precision и Recall обнаружения кассового разрыва по порогу вероятности', note=GAP_NOTE +
-                     ' Прогноз считается сигналом разрыва, если вероятность разрыва за 30 дней ≥ порога.')
-series = [
-    ('precision', [r['precision'] for r in an], 'Precision', '-'),
-    ('recall', [r['recall'] for r in an], 'Recall', '-'),
-    ('f1', [r['f1'] for r in an], 'F1', '-'),
-]
-for key, ys, label, ls in series:
-    xs = [t for t, y in zip(th, ys) if y is not None]
-    ys = [y for y in ys if y is not None]
-    ax.plot(xs, ys, ls, color=METRIC_COLORS[key], linewidth=2, label=f'{label} — текущая модель')
-    end_label(ax, xs[-1], ys[-1], f'{label} {ys[-1]:.2f}', METRIC_COLORS[key])
-lg_prec = [(r['threshold'], r['precision']) for r in lg if r['precision'] is not None]
-ax.plot([x for x, _ in lg_prec], [y for _, y in lg_prec], '--', color=TEXT_2, linewidth=1.5, label='Precision — прежняя модель (sin/cos)')
-end_label(ax, lg_prec[-1][0], lg_prec[-1][1], f'Precision прежн. {lg_prec[-1][1]:.2f}', TEXT_2)
+                     ' Сигнал — вероятность разрыва за 30 дней ≥ порога.')
+for key, label in GAP_MODELS:
+    rows = m['classification'][key]['by_threshold']
+    pts = precision_points(rows)
+    if pts:
+        xs = [p[0] for p in pts]
+        ax.fill_between(xs, [p[2] for p in pts], [p[3] for p in pts], color=MODEL_COLORS[key], alpha=0.12, linewidth=0)
+        ax.plot(xs, [p[1] for p in pts], '-', color=MODEL_COLORS[key], linewidth=2, label=f'Precision — {label}')
+    ax.plot([r['threshold'] for r in rows], [r['recall'] for r in rows], '--', color=MODEL_COLORS[key], linewidth=2,
+            label=f'Recall — {label}')
+base_rate_line(ax, (99, BASE_RATE))
 ax.set_xlabel('Порог вероятности разрыва, %')
 ax.set_ylabel('Значение метрики')
 ax.set_xlim(0, 100)
 ax.set_ylim(0, 1.05)
-ax.legend(loc='upper left', bbox_to_anchor=(0.0, 0.86), frameon=False, fontsize=9)
+ax.legend(loc='upper right', ncol=2, frameon=False, fontsize=9)
 save(fig, '1_precision_recall_by_threshold.png')
 
-# 2. Precision-recall curve
+# 2. Precision-recall curve (thresholds with enough signals only)
 fig, ax = new_figure('Кривая Precision–Recall: текущая и прежняя модель', note=GAP_NOTE +
-                     ' Подписи точек — порог вероятности. Пунктир — доля разрывов (precision случайного угадывания).')
-for key, rows, label in [('analog', an, 'Текущая модель (аналоговые периоды)'), ('legacy', lg, 'Прежняя модель (sin/cos)')]:
-    pts = [(r['recall'], r['precision'], r['threshold']) for r in rows if r['precision'] is not None]
-    ax.plot([p[0] for p in pts], [p[1] for p in pts], '-o', color=MODEL_COLORS[key], linewidth=2, markersize=4, label=label)
+                     ' Подписи точек — порог вероятности. Пунктир — precision случайного угадывания (доля новых разрывов).')
+for key, label in GAP_MODELS:
+    rows = m['classification'][key]['by_threshold']
+    keep = {p[0] for p in precision_points(rows)}
+    pts = [(r['recall'], r['precision'], r['threshold']) for r in rows if r['threshold'] in keep]
+    if not pts:
+        continue
+    ax.plot([p[0] for p in pts], [p[1] for p in pts], '-o', color=MODEL_COLORS[key], linewidth=2, markersize=4,
+            label=label.capitalize())
     if key == 'analog':
         for rec, prec, t in pts:
-            if t in (10, 50, 90):
-                ax.annotate(f'порог {t}%', (rec, prec), xytext=(-10, 0), textcoords='offset points', ha='right', va='center', fontsize=8.5, color=TEXT)
-base = m['actual_gaps'] / m['forecasts']
-ax.axhline(base, color=TEXT_2, linestyle=':', linewidth=1.2)
-ax.annotate(f'доля разрывов {base:.1%}', (0.02, base), xytext=(0, 5), textcoords='offset points', fontsize=8.5, color=TEXT_2)
+            if t in (10, 30, 50):
+                ax.annotate(f'порог {t}%', (rec, prec), xytext=(6, 6), textcoords='offset points', fontsize=8.5, color=TEXT)
+base_rate_line(ax, (0.02, BASE_RATE))
 ax.set_xlabel('Recall (доля найденных разрывов)')
 ax.set_ylabel('Precision (доля верных сигналов)')
 ax.set_xlim(0, 1.02)
