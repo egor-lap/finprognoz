@@ -69,6 +69,16 @@ node scripts/backtest.ts data/raw/train.csv data/raw/test.csv
 python scripts/plot_backtest.py
 ```
 
+### Проверка на новых данных
+
+Любой файл в формате кейса (как `train.csv` или `test.csv`, с заголовком или без) проверяется одной командой:
+
+```bash
+npm run evaluate -- путь/к/файлу.csv
+```
+
+Даты среза берутся из самих данных: последние 6 концов месяца, после которых в файле есть 30 дней факта. Метрики и те же 5 графиков сохраняются в `reports/evaluate/<имя файла>/` (в git не попадают), графики презентации не перезаписываются. Нужны Node.js и Python с matplotlib (`pip install matplotlib`); на `test.csv` команда отрабатывает за 2–3 секунды.
+
 ## Структура
 
 | Путь | Что внутри |
@@ -78,6 +88,6 @@ python scripts/plot_backtest.py
 | `data/` | Демо-выписка C052 (её отдаёт сервер) и сводка EDA для слайдов `eda_summary.json` (сайт её не использует) |
 | `data/raw/` | Сырые train/test кейса (локально, в git не входят) |
 | `shared/cashflow.ts` | Модель прогноза (аналоговые периоды), рекомендации; общая для сервера и интерфейса |
-| `scripts/` | Бэктест (`backtest.ts`) и графики метрик (`plot_backtest.py`), EDA датасета (`run_eda.py`) и слайд EDA (`export_presentation_charts.py`) |
-| `reports/` | Метрики бэктеста (`backtest_metrics.json`) |
+| `scripts/` | Бэктест (`backtest.ts`), графики метрик (`plot_backtest.py`), проверка на новом файле (`evaluate.ts`), EDA датасета (`run_eda.py`) и слайд EDA (`export_presentation_charts.py`) |
+| `reports/` | Метрики бэктеста (`backtest_metrics.json`); результаты `npm run evaluate` — в `reports/evaluate/` |
 | `docs/` | Текст кейса (`case.pdf`) и описание датасета (`dataset_README.md`) |

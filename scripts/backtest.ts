@@ -7,19 +7,24 @@
 //     a negative end-of-day balance on any day of the horizon. Only forecasts made before the gap
 //     count: if the balance is already negative at the cutoff, the gap is not a prediction.
 //
-// Run:  node scripts/backtest.ts [statement.csv ...]   (default: data/raw/train.csv data/raw/test.csv)
-// Output: reports/backtest_metrics.json (plotted by scripts/plot_backtest.py)
+// Run:  node scripts/backtest.ts [--out metrics.json] [statement.csv ...]   (default: data/raw/train.csv data/raw/test.csv)
+// Output: reports/backtest_metrics.json or the --out path (plotted by scripts/plot_backtest.py).
+// Cutoffs are the last month ends that still have HORIZON_DAYS of facts in the data, so any file in the case
+// format works; scripts/evaluate.ts runs the backtest and the charts for a new file in one command.
 
 import fs from 'fs';
 import path from 'path';
 import { buildDailySeries, simulateForecast, addDaysIso, HORIZON_DAYS } from '../shared/cashflow.ts';
 import type { StatementOp } from '../shared/cashflow.ts';
 
-const CUTOFFS = ['2026-03-31', '2026-04-30', '2026-05-31', '2026-06-30', '2026-07-31', '2026-08-31'];
+const CUTOFF_COUNT = 6;
 const MIN_HISTORY_DAYS = 90;
 const THRESHOLDS = Array.from({ length: 19 }, (_, i) => (i + 1) * 5); // 5% .. 95%
 const GAP_EVAL_RULE = 'только прогнозы с неотрицательным остатком на дату среза (разрыв ещё не наступил)';
-const OUT_FILE = 'reports/backtest_metrics.json';
+const args = process.argv.slice(2);
+const outAt = args.indexOf('--out');
+const OUT_FILE = outAt >= 0 ? args[outAt + 1] : 'reports/backtest_metrics.json';
+const inputFiles = outAt >= 0 ? args.filter((_, i) => i !== outAt && i !== outAt + 1) : args;
 const STANDARD_COLUMNS = ['company_id', 'operation_id', 'operation_date', 'amount', 'direction', 'counterparty_inn', 'counterparty_name', 'payment_purpose', 'balance_eod'];
 
 interface Row extends StatementOp {
@@ -123,9 +128,30 @@ const MODEL_NAMES: Record<Model, string> = {
   trend: 'Линейный тренд за 90 дней'
 };
 
-const files = process.argv.slice(2).length > 0 ? process.argv.slice(2) : ['data/raw/train.csv', 'data/raw/test.csv'];
+// The last `count` month ends that have HORIZON_DAYS of facts after them and at least MIN_HISTORY_DAYS of data before
+function monthEndCutoffs(datasetStart: string, datasetEnd: string, count: number): string[] {
+  const cutoffs: string[] = [];
+  let year = Number(datasetEnd.slice(0, 4));
+  let month = Number(datasetEnd.slice(5, 7)); // 1..12
+  while (cutoffs.length < count) {
+    const monthEnd = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+    if (monthEnd < addDaysIso(datasetStart, MIN_HISTORY_DAYS)) break;
+    if (addDaysIso(monthEnd, HORIZON_DAYS) <= datasetEnd) cutoffs.unshift(monthEnd);
+    month -= 1;
+    if (month === 0) { month = 12; year -= 1; }
+  }
+  return cutoffs;
+}
+
+const files = inputFiles.length > 0 ? inputFiles : ['data/raw/train.csv', 'data/raw/test.csv'];
 const companies = loadRows(files);
+if (companies.size === 0) {
+  console.error('В файлах нет ни одной операции в формате кейса (company_id;operation_id;operation_date;amount;direction;...)');
+  process.exit(1);
+}
+const datasetStart = [...companies.values()].map(rows => rows[0].date).sort()[0];
 const datasetEnd = [...companies.values()].map(rows => rows[rows.length - 1].date).sort().at(-1)!;
+const CUTOFFS = monthEndCutoffs(datasetStart, datasetEnd, CUTOFF_COUNT);
 
 // Errors per model and horizon day; scores and labels for gap detection
 const absErr: Record<Model, number[][]> = { analog: [], legacy: [], naive: [], trend: [] };
@@ -182,7 +208,15 @@ for (const [company, rows] of companies) {
   }
 }
 
-const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / Math.max(1, xs.length);
+if (cases.length === 0) {
+  console.error(
+    `Ни одного прогноза: данные ${datasetStart} .. ${datasetEnd}, даты среза: ${CUTOFFS.join(', ') || 'нет'}. ` +
+    `Нужно не меньше ${MIN_HISTORY_DAYS} дней истории до среза и ${HORIZON_DAYS} дней факта после него.`
+  );
+  process.exit(1);
+}
+
+const mean =(xs: number[]) => xs.reduce((s, x) => s + x, 0) / Math.max(1, xs.length);
 const regression = Object.fromEntries(
   MODELS.map(m => [m, {
     name: MODEL_NAMES[m],

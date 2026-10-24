@@ -5,10 +5,12 @@ from reports/backtest_metrics.json into PNG files in presentation_assets/metrics
 
 Run after the backtest:
     node scripts/backtest.ts <train.csv> <test.csv>
-    python scripts/plot_backtest.py
+    python scripts/plot_backtest.py [metrics.json] [out_dir]
+For a new file both steps are done by: npm run evaluate -- <file.csv>
 """
 import json
 import os
+import sys
 import textwrap
 from datetime import date
 
@@ -17,8 +19,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt  # noqa: E402
 
-IN_FILE = 'reports/backtest_metrics.json'
-OUT_DIR = 'presentation_assets/metrics'
+IN_FILE = sys.argv[1] if len(sys.argv) > 1 else 'reports/backtest_metrics.json'
+OUT_DIR = sys.argv[2] if len(sys.argv) > 2 else 'presentation_assets/metrics'
 
 # Validated categorical palette (light mode), fixed order by entity
 SURFACE = '#fcfcfb'
@@ -43,8 +45,13 @@ def ru(iso):
     return date.fromisoformat(iso).strftime('%d.%m.%Y')
 
 
+years = {c[:4] for c in m['cutoffs']}
+CUTOFFS_TEXT = (
+    f"{', '.join(date.fromisoformat(c).strftime('%d.%m') for c in m['cutoffs'])}.{m['cutoffs'][0][:4]}" if len(years) == 1
+    else ', '.join(ru(c) for c in m['cutoffs'])  # cutoffs over two years: full dates
+)
 PERIOD = (
-    f"Срезы прогноза: {', '.join(date.fromisoformat(c).strftime('%d.%m') for c in m['cutoffs'])}.{m['cutoffs'][0][:4]}  ·  "
+    f"Срезы прогноза: {CUTOFFS_TEXT}  ·  "
     f"факт за период {ru(m['actual_period']['from'])} – {ru(m['actual_period']['to'])}\n"
     f"{m['companies']} компаний, {m['forecasts']} прогнозов, горизонт {m['horizon_days']} дней после каждого среза"
 )
@@ -53,7 +60,7 @@ GAP_NOTE = (
     f"новых разрывов {m['new_gaps']}. Ещё {m['already_negative']} прогнозов сделаны, когда остаток уже был в минусе, — это не прогноз, "
     f"они исключены. Precision показан только при ≥{MIN_SIGNALS} сигналах, полоса — 95% интервал."
 )
-BASE_RATE = m['new_gaps'] / m['gap_eval_forecasts']
+BASE_RATE = m['new_gaps'] / max(1, m['gap_eval_forecasts'])
 
 plt.rcParams.update({
     'font.family': 'DejaVu Sans',
@@ -110,48 +117,56 @@ def base_rate_line(ax, x_label):
 
 GAP_MODELS = [('analog', 'текущая модель'), ('legacy', 'прежняя модель (sin/cos)')]
 
-# 1. Precision (with 95% band) and recall by threshold: color = model, line style = metric
-fig, ax = new_figure('Precision и Recall обнаружения кассового разрыва по порогу вероятности', note=GAP_NOTE +
-                     ' Сигнал — вероятность разрыва за 30 дней ≥ порога.')
-for key, label in GAP_MODELS:
-    rows = m['classification'][key]['by_threshold']
-    pts = precision_points(rows)
-    if pts:
-        xs = [p[0] for p in pts]
-        ax.fill_between(xs, [p[2] for p in pts], [p[3] for p in pts], color=MODEL_COLORS[key], alpha=0.12, linewidth=0)
-        ax.plot(xs, [p[1] for p in pts], '-', color=MODEL_COLORS[key], linewidth=2, label=f'Precision — {label}')
-    ax.plot([r['threshold'] for r in rows], [r['recall'] for r in rows], '--', color=MODEL_COLORS[key], linewidth=2,
-            label=f'Recall — {label}')
-base_rate_line(ax, (99, BASE_RATE))
-ax.set_xlabel('Порог вероятности разрыва, %')
-ax.set_ylabel('Значение метрики')
-ax.set_xlim(0, 100)
-ax.set_ylim(0, 1.05)
-ax.legend(loc='upper right', ncol=2, frameon=False, fontsize=9)
-save(fig, '1_precision_recall_by_threshold.png')
 
-# 2. Precision-recall curve (thresholds with enough signals only)
-fig, ax = new_figure('Кривая Precision–Recall: текущая и прежняя модель', note=GAP_NOTE +
-                     ' Подписи точек — порог вероятности. Пунктир — precision случайного угадывания (доля новых разрывов).')
-for key, label in GAP_MODELS:
-    rows = m['classification'][key]['by_threshold']
-    keep = {p[0] for p in precision_points(rows)}
-    pts = [(r['recall'], r['precision'], r['threshold']) for r in rows if r['threshold'] in keep]
-    if not pts:
-        continue
-    ax.plot([p[0] for p in pts], [p[1] for p in pts], '-o', color=MODEL_COLORS[key], linewidth=2, markersize=4,
-            label=label.capitalize())
-    if key == 'analog':
-        for rec, prec, t in pts:
-            if t in (10, 30, 50):
-                ax.annotate(f'порог {t}%', (rec, prec), xytext=(6, 6), textcoords='offset points', fontsize=8.5, color=TEXT)
-base_rate_line(ax, (0.02, BASE_RATE))
-ax.set_xlabel('Recall (доля найденных разрывов)')
-ax.set_ylabel('Precision (доля верных сигналов)')
-ax.set_xlim(0, 1.02)
-ax.set_ylim(0, 1.05)
-ax.legend(loc='upper right', frameon=False, fontsize=9)
-save(fig, '2_precision_recall_curve.png')
+def plot_gap_charts():
+    # 1. Precision (with 95% band) and recall by threshold: color = model, line style = metric
+    fig, ax = new_figure('Precision и Recall обнаружения кассового разрыва по порогу вероятности', note=GAP_NOTE +
+                         ' Сигнал — вероятность разрыва за 30 дней ≥ порога.')
+    for key, label in GAP_MODELS:
+        rows = m['classification'][key]['by_threshold']
+        pts = precision_points(rows)
+        if pts:
+            xs = [p[0] for p in pts]
+            ax.fill_between(xs, [p[2] for p in pts], [p[3] for p in pts], color=MODEL_COLORS[key], alpha=0.12, linewidth=0)
+            ax.plot(xs, [p[1] for p in pts], '-', color=MODEL_COLORS[key], linewidth=2, label=f'Precision — {label}')
+        ax.plot([r['threshold'] for r in rows], [r['recall'] for r in rows], '--', color=MODEL_COLORS[key], linewidth=2,
+                label=f'Recall — {label}')
+    base_rate_line(ax, (99, BASE_RATE))
+    ax.set_xlabel('Порог вероятности разрыва, %')
+    ax.set_ylabel('Значение метрики')
+    ax.set_xlim(0, 100)
+    ax.set_ylim(0, 1.05)
+    ax.legend(loc='upper right', ncol=2, frameon=False, fontsize=9)
+    save(fig, '1_precision_recall_by_threshold.png')
+
+    # 2. Precision-recall curve (thresholds with enough signals only)
+    fig, ax = new_figure('Кривая Precision–Recall: текущая и прежняя модель', note=GAP_NOTE +
+                         ' Подписи точек — порог вероятности. Пунктир — precision случайного угадывания (доля новых разрывов).')
+    for key, label in GAP_MODELS:
+        rows = m['classification'][key]['by_threshold']
+        keep = {p[0] for p in precision_points(rows)}
+        pts = [(r['recall'], r['precision'], r['threshold']) for r in rows if r['threshold'] in keep]
+        if not pts:
+            continue
+        ax.plot([p[0] for p in pts], [p[1] for p in pts], '-o', color=MODEL_COLORS[key], linewidth=2, markersize=4,
+                label=label.capitalize())
+        if key == 'analog':
+            for rec, prec, t in pts:
+                if t in (10, 30, 50):
+                    ax.annotate(f'порог {t}%', (rec, prec), xytext=(6, 6), textcoords='offset points', fontsize=8.5, color=TEXT)
+    base_rate_line(ax, (0.02, BASE_RATE))
+    ax.set_xlabel('Recall (доля найденных разрывов)')
+    ax.set_ylabel('Precision (доля верных сигналов)')
+    ax.set_xlim(0, 1.02)
+    ax.set_ylim(0, 1.05)
+    ax.legend(loc='upper right', frameon=False, fontsize=9)
+    save(fig, '2_precision_recall_curve.png')
+
+
+if m['new_gaps'] > 0:
+    plot_gap_charts()
+else:
+    print('В данных нет новых разрывов: графики precision / recall не строятся, они были бы пустыми')
 
 # 3-4. MAE and RMSE by horizon day
 reg = m['regression']

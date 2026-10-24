@@ -10,6 +10,9 @@ coverage/
 # Сырые выписки кейса (train/test) не коммитим и не раздаём как статику
 data/raw/
 
+# Результаты npm run evaluate на чужих файлах
+reports/evaluate/
+
 # Python
 __pycache__/
 *.pyc
