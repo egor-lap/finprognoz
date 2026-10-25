@@ -1281,9 +1281,9 @@ export default function App() {
 
                   <div className="flex items-center gap-3">
                     {statementFileName && (
-                      // Report of npm run evaluate for this file, opened at the selected company
+                      // Journal of the selected company: the report of this file or the shared report over all operations
                       <a
-                        href={`/report/${encodeURIComponent(statementFileName.replace(/\.[^/.]+$/, ''))}${selectedCompany ? `#c-${encodeURIComponent(selectedCompany)}` : ''}`}
+                        href={`/journal?file=${encodeURIComponent(statementFileName.replace(/\.[^/.]+$/, ''))}&company=${encodeURIComponent(selectedCompany)}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         title="HTML-отчёт npm run evaluate: журнал расчёта по шагам, прогноз по дням, метрики"
