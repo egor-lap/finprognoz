@@ -5,7 +5,8 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import { buildDailySeries, simulateForecast, buildGapAlerts, buildInsights, detectRecurring } from './shared/cashflow.ts';
+import { analyzeStatement, explainForecast } from './shared/cashflow.ts';
+import { categorizeOperation } from './shared/statement.ts';
 import type { StatementOp } from './shared/cashflow.ts';
 
 dotenv.config({ quiet: true });
@@ -112,9 +113,11 @@ app.post('/api/analyze-statement', (req: Request, res: Response) => {
         date,
         amount: Math.abs(rawAmount),
         isCredit,
-        category: typeof op.category === 'string' && op.category ? op.category : (isCredit ? 'Выручка от покупателей' : 'Оплата поставщикам'),
+        category: typeof op.category === 'string' && op.category ? op.category : categorizeOperation(typeof op.purpose === 'string' ? op.purpose : '', isCredit),
         counterparty: typeof op.counterparty === 'string' && op.counterparty ? op.counterparty : (isCredit ? 'Покупатель' : 'Контрагент'),
-        purpose: typeof op.purpose === 'string' ? op.purpose : ''
+        purpose: typeof op.purpose === 'string' ? op.purpose : '',
+        // End-of-day balance from the file: the daily history is taken from it
+        balance: typeof op.balance === 'number' && Number.isFinite(op.balance) ? op.balance : null
       });
     }
     const skippedOperations = operations.length - sortedOps.length;
@@ -122,112 +125,47 @@ app.post('/api/analyze-statement', (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Нет ни одной операции с корректной датой и суммой', skipped_operations: skippedOperations });
     }
 
-    // Sort operations by date (ISO strings compare chronologically; sort is stable for same-day rows)
-    sortedOps.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
-
-    // closingBalance is balance_eod at the end of the statement; the opening balance is
-    // reconstructed from it so the history is not added on top of the final balance twice
-    const netHistory = sortedOps.reduce((s, op) => s + (op.isCredit ? op.amount : -op.amount), 0);
-    const hasClosing = typeof closingBalance === 'number' && Number.isFinite(closingBalance);
-    const openingBalance = hasClosing ? closingBalance - netHistory : (Number(initialBalance) || 0);
-
-    let runningBal = openingBalance;
-    let totalInflow = 0;
-    let totalOutflow = 0;
-    const catMap: Record<string, { count: number; total: number; direction: string }> = {};
-    const counterpartyMap: Record<string, { count: number; total: number; direction: string }> = {};
-
-    for (const op of sortedOps) {
-      const { amount, isCredit, category, counterparty } = op;
-
-      if (isCredit) {
-        totalInflow += amount;
-        runningBal += amount;
-      } else {
-        totalOutflow += amount;
-        runningBal -= amount;
-      }
-
-      if (!catMap[category]) {
-        catMap[category] = { count: 0, total: 0, direction: isCredit ? 'Поступление' : 'Списание' };
-      }
-      catMap[category].count += 1;
-      catMap[category].total += amount;
-
-      if (!counterpartyMap[counterparty]) {
-        counterpartyMap[counterparty] = { count: 0, total: 0, direction: isCredit ? 'Поступление' : 'Списание' };
-      }
-      counterpartyMap[counterparty].count += 1;
-      counterpartyMap[counterparty].total += amount;
-    }
-
-    // Empirical forecast: replay analogous historical periods from today's balance (see shared/cashflow.ts)
-    const days = buildDailySeries(sortedOps, openingBalance);
-    const sim = simulateForecast(days, runningBal);
-    const futureDates = sim.forecast;
-    const alerts = buildGapAlerts(futureDates, 0);
-    const insights = buildInsights(days, runningBal, sim);
-
-    const minP50 = Math.min(...futureDates.map(f => f.balance_p50));
-    const minP10 = Math.min(...futureDates.map(f => f.balance_p10));
-    const maxGapProb = sim.gapProbabilityPct;
-
-    // The status reflects the forecast only; rule-based insights (owner withdrawals, cushion, past lows) are
-    // reported separately as remarks so they never read as a forecast gap risk
-    let riskLevel: 'CRITICAL' | 'WARNING' | 'STABLE' = 'STABLE';
-    let statusLabel = 'Стабильное состояние (В норме)';
-    if (maxGapProb >= 50 || minP50 < 0) {
-      riskLevel = 'CRITICAL';
-      statusLabel = 'Критический кассовый разрыв';
-    } else if (maxGapProb >= 10 || minP10 < 0) {
-      riskLevel = 'WARNING';
-      statusLabel = 'Повышенный риск кассового разрыва';
-    }
+    // Forecast, alerts, insights and status (shared/cashflow.ts: the same code the scripts use)
+    const a = analyzeStatement(sortedOps, { closingBalance, initialBalance });
+    const f = a.sim.forecast;
 
     res.json({
       company_id: companyName || 'Загруженная компания',
       industry: 'Пользовательские данные',
       split: 'upload',
-      current_balance: Math.round(runningBal),
-      min_forecast_p50: minP50,
-      min_forecast_p10: minP10,
-      max_gap_probability: maxGapProb,
-      forecast_risk_level: riskLevel,
-      forecast_status_label: statusLabel,
-      opening_balance: Math.round(openingBalance),
-      period_start: sortedOps[0].date,
-      period_end: sortedOps[sortedOps.length - 1].date,
-      total_operations: sortedOps.length,
+      current_balance: Math.round(a.currentBalance),
+      min_forecast_p50: a.minP50,
+      min_forecast_p10: a.minP10,
+      max_gap_probability: a.sim.gapProbabilityPct,
+      forecast_risk_level: a.status.level,
+      forecast_status_label: a.status.label,
+      opening_balance: Math.round(a.openingBalance),
+      period_start: a.period.start,
+      period_end: a.period.end,
+      total_operations: a.operations.length,
       skipped_operations: skippedOperations,
-      total_inflow: Math.round(totalInflow),
-      total_outflow: Math.round(totalOutflow),
-      net_cash_flow: Math.round(totalInflow - totalOutflow),
-      categories: Object.entries(catMap).map(([name, data]) => ({
-        name,
-        total_amount: Math.round(data.total),
-        direction: data.direction,
-        count: data.count
-      })).sort((a, b) => b.total_amount - a.total_amount),
-      counterparties: Object.entries(counterpartyMap).map(([name, data]) => ({
-        name,
-        total: Math.round(data.total),
-        direction: data.direction,
-        count: data.count
-      })).sort((a, b) => b.total - a.total).slice(0, 8),
-      recurring_items: detectRecurring(sortedOps),
+      total_inflow: Math.round(a.totals.inflow),
+      total_outflow: Math.round(a.totals.outflow),
+      net_cash_flow: Math.round(a.totals.inflow - a.totals.outflow),
+      inflow_operations: a.totals.inflowCount,
+      categories: a.categories,
+      counterparties: a.counterparties,
+      recurring_items: a.recurring,
       // Daily end-of-day balance for the last 60 calendar days (one point per date for the chart axis)
-      history: days.slice(-60).map(d => ({
+      history: a.days.slice(-60).map(d => ({
         date: d.date,
         balance: Math.round(d.eod),
         inflow: Math.round(d.inflow),
         outflow: Math.round(d.outflow)
       })),
-      forecast: futureDates,
-      alerts,
-      insights,
+      forecast: f,
+      alerts: a.alerts,
+      insights: a.insights,
       // Cumulative net flow of every simulated path: lets the client re-run what-if scenarios on the same distribution
-      paths: sim.paths,
-      model: { method: sim.method, scenarios: sim.paths.length, gap_scenarios: sim.gapPaths, horizon_days: 30 }
+      paths: a.sim.paths,
+      model: { method: a.sim.method, scenarios: a.sim.paths.length, gap_scenarios: a.sim.gapPaths, horizon_days: f.length },
+      // Step-by-step log of the calculation, shown on the «Журнал расчёта» tab
+      calc_log: explainForecast(a)
     });
   } catch (err) {
     sendServerError(res, err);

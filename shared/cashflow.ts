@@ -5,6 +5,8 @@
 // today's balance. P10/P50/P90 and the cash-gap probability are therefore shares of real historical
 // scenarios, not a parametric guess. With too little history, single days are bootstrapped instead.
 
+import { OWNER_TRANSFER, plural } from './statement.ts';
+
 export const HORIZON_DAYS = 30;
 
 export interface StatementOp {
@@ -14,6 +16,13 @@ export interface StatementOp {
   category: string;
   counterparty: string;
   purpose: string;
+  balance?: number | null; // end-of-day balance from the statement, when the file has it
+}
+
+// One step of the calculation log shown to the user and written by the scripts
+export interface CalcStep {
+  title: string;
+  lines: string[];
 }
 
 export interface ForecastPoint {
@@ -55,10 +64,8 @@ export interface RecurringItem {
   count: number;
 }
 
-// Calendar obligations: salary, taxes (ЕНП), rent. Matches the client's category names.
+// Calendar obligations: salary, taxes (ЕНП), rent. Matches the category names of shared/statement.ts.
 const SCHEDULED_CATEGORY = /Зарплата|Налоги|ЕНП|Аренда/;
-// Owner withdrawals: transfers to a personal account, dividends, accountable sums
-const OWNER_WITHDRAWAL = /личн[а-я]* сч|собственных средств|дивиденд|подотч[её]т/i;
 
 export const formatRubExact = (v: number) => Math.round(v).toLocaleString('ru-RU') + ' ₽';
 const isoToRu = (iso: string) => iso.split('-').reverse().join('.');
@@ -97,7 +104,7 @@ function mulberry32(seed: number) {
   };
 }
 
-interface HistoryDay {
+export interface HistoryDay {
   date: string;
   inflow: number;
   outflow: number;
@@ -107,7 +114,9 @@ interface HistoryDay {
   eod: number;
 }
 
-// Contiguous daily series (days without operations included) with end-of-day balance
+// Contiguous daily series (days without operations included) with end-of-day balance.
+// When the statement has an end-of-day balance column, the balance is taken from it: missing or
+// damaged operations then do not shift the whole history; otherwise it is summed from the operations.
 export function buildDailySeries(ops: StatementOp[], openingBalance: number): HistoryDay[] {
   if (ops.length === 0) return [];
   const byDate = new Map<string, StatementOp[]>();
@@ -121,6 +130,7 @@ export function buildDailySeries(ops: StatementOp[], openingBalance: number): Hi
   const last = ops[ops.length - 1].date;
   for (let date = ops[0].date; date <= last; date = addDaysIso(date, 1)) {
     const day: HistoryDay = { date, inflow: 0, outflow: 0, sched: 0, schedNames: [], ownerOut: 0, eod: 0 };
+    let reported: number | null = null;
     for (const op of byDate.get(date) ?? []) {
       if (op.isCredit) {
         day.inflow += op.amount;
@@ -130,10 +140,12 @@ export function buildDailySeries(ops: StatementOp[], openingBalance: number): Hi
           day.sched += op.amount;
           if (!day.schedNames.includes(op.category)) day.schedNames.push(op.category);
         }
-        if (OWNER_WITHDRAWAL.test(op.purpose)) day.ownerOut += op.amount;
+        if (OWNER_TRANSFER.test(op.purpose)) day.ownerOut += op.amount;
       }
+      if (typeof op.balance === 'number' && Number.isFinite(op.balance)) reported = op.balance;
     }
     bal += day.inflow - day.outflow;
+    if (reported !== null) bal = reported;
     day.eod = bal;
     days.push(day);
   }
@@ -146,6 +158,8 @@ export interface SimulationResult {
   forecast: ForecastPoint[]; // base forecast (no scenario), quantiles from paths
   gapPaths: number;
   gapProbabilityPct: number; // probability of a gap anywhere within the horizon
+  // How the scenarios were chosen, for the calculation log
+  selection: { targetDay: number; candidates: number; recent: number; useRecent: boolean; windowStarts: string[] };
 }
 
 export function simulateForecast(days: HistoryDay[], currentBalance: number): SimulationResult {
@@ -224,7 +238,14 @@ export function simulateForecast(days: HistoryDay[], currentBalance: number): Si
     paths: paths.map(p => p.map(v => Math.round(v))),
     forecast,
     gapPaths: summary.gapPaths,
-    gapProbabilityPct: summary.overallGapProb
+    gapProbabilityPct: summary.overallGapProb,
+    selection: {
+      targetDay: targetDom,
+      candidates: starts.length,
+      recent: recent.length,
+      useRecent: recent.length >= 12,
+      windowStarts: method === 'analog_periods' ? chosen.map(s => days[s].date) : [],
+    },
   };
 }
 
@@ -442,4 +463,188 @@ export function detectRecurring(ops: StatementOp[]): RecurringItem[] {
     });
   }
   return items.sort((a, b) => a.typical_day - b.typical_day);
+}
+
+// ---------------------------------------------------------------- one statement end to end
+
+export type RiskLevel = 'CRITICAL' | 'WARNING' | 'STABLE';
+
+// Forecast status: reflects the forecast only; rule-based insights are shown next to it, not in it
+export function forecastStatus(gapProbabilityPct: number, minP50: number, minP10: number, buffer = 0): { level: RiskLevel; label: string } {
+  if (gapProbabilityPct >= 50 || minP50 < buffer) return { level: 'CRITICAL', label: 'Критический кассовый разрыв' };
+  if (gapProbabilityPct >= 10 || minP10 < buffer) return { level: 'WARNING', label: 'Повышенный риск кассового разрыва' };
+  return { level: 'STABLE', label: 'Стабильное состояние (В норме)' };
+}
+
+export interface StatementAnalysis {
+  operations: StatementOp[]; // sorted by date, file order kept within a day
+  openingBalance: number;
+  currentBalance: number;
+  hasClosingBalance: boolean;
+  period: { start: string; end: string };
+  totals: { inflow: number; outflow: number; inflowCount: number; outflowCount: number };
+  categories: Array<{ name: string; total_amount: number; direction: string; count: number }>;
+  counterparties: Array<{ name: string; total: number; direction: string; count: number }>;
+  recurring: RecurringItem[];
+  days: HistoryDay[];
+  sim: SimulationResult;
+  alerts: GapAlert[];
+  insights: Insight[];
+  minP50: number;
+  minP10: number;
+  status: { level: RiskLevel; label: string };
+}
+
+// Everything the service computes for one company; used by the API and by scripts/forecast.ts
+export function analyzeStatement(ops: StatementOp[], opts: { closingBalance?: number | null; initialBalance?: number; asOf?: string } = {}): StatementAnalysis {
+  const operations = [...ops].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  const net = operations.reduce((s, op) => s + (op.isCredit ? op.amount : -op.amount), 0);
+  const hasClosingBalance = typeof opts.closingBalance === 'number' && Number.isFinite(opts.closingBalance);
+  // closingBalance is the end-of-day balance of the last date; the opening balance is rebuilt from it,
+  // so the history is not added on top of the final balance twice
+  const openingBalance = hasClosingBalance ? (opts.closingBalance as number) - net : Number(opts.initialBalance) || 0;
+  const currentBalance = openingBalance + net;
+
+  const totals = { inflow: 0, outflow: 0, inflowCount: 0, outflowCount: 0 };
+  const byCategory = new Map<string, { name: string; total: number; count: number; direction: string }>();
+  const byParty = new Map<string, { name: string; total: number; count: number; direction: string }>();
+  for (const op of operations) {
+    const direction = op.isCredit ? 'Поступление' : 'Списание';
+    if (op.isCredit) { totals.inflow += op.amount; totals.inflowCount++; }
+    else { totals.outflow += op.amount; totals.outflowCount++; }
+    for (const [map, name] of [[byCategory, op.category], [byParty, op.counterparty]] as const) {
+      const key = `${direction}|${name}`;
+      const item = map.get(key) ?? { name, total: 0, count: 0, direction };
+      item.total += op.amount;
+      item.count++;
+      map.set(key, item);
+    }
+  }
+  const days = buildDailySeries(operations, openingBalance);
+  // asOf: the date the balance is known for (the backtest cutoff). Days after the last operation up to it
+  // had no operations, so the forecast starts on the day after asOf
+  while (opts.asOf && days.length > 0 && days[days.length - 1].date < opts.asOf) {
+    const last = days[days.length - 1];
+    days.push({ date: addDaysIso(last.date, 1), inflow: 0, outflow: 0, sched: 0, schedNames: [], ownerOut: 0, eod: last.eod });
+  }
+  const sim = simulateForecast(days, currentBalance);
+  const minP50 = Math.min(...sim.forecast.map(f => f.balance_p50));
+  const minP10 = Math.min(...sim.forecast.map(f => f.balance_p10));
+  return {
+    operations,
+    openingBalance,
+    currentBalance,
+    hasClosingBalance,
+    period: { start: operations[0].date, end: operations[operations.length - 1].date },
+    totals,
+    categories: [...byCategory.values()].map(c => ({ name: c.name, total_amount: Math.round(c.total), direction: c.direction, count: c.count })).sort((a, b) => b.total_amount - a.total_amount),
+    counterparties: [...byParty.values()].map(c => ({ name: c.name, total: Math.round(c.total), direction: c.direction, count: c.count })).sort((a, b) => b.total - a.total).slice(0, 8),
+    recurring: detectRecurring(operations),
+    days,
+    sim,
+    alerts: buildGapAlerts(sim.forecast, 0),
+    insights: buildInsights(days, currentBalance, sim),
+    minP50,
+    minP10,
+    status: forecastStatus(sim.gapProbabilityPct, minP50, minP10),
+  };
+}
+
+const SEVERITY_RU: Record<string, string> = { CRITICAL: 'критично', WARNING: 'внимание', INFO: 'инфо' };
+
+// Step-by-step log of how the forecast of one company was built, in plain words and real numbers
+export function explainForecast(a: StatementAnalysis): CalcStep[] {
+  const rub = formatRubExact;
+  const ops = (n: number) => `${n} ${plural(n, 'операция', 'операции', 'операций')}`;
+  const scen = (n: number) => `${n} ${plural(n, 'сценарий', 'сценария', 'сценариев')}`;
+  const steps: CalcStep[] = [];
+  const t = a.totals;
+  steps.push({
+    title: 'Операции и остаток',
+    lines: [
+      `${ops(t.inflowCount + t.outflowCount)} с ${isoToRu(a.period.start)} по ${isoToRu(a.period.end)}: поступления ${rub(t.inflow)} (${ops(t.inflowCount)}), списания ${rub(t.outflow)} (${ops(t.outflowCount)}).`,
+      a.hasClosingBalance
+        ? `Остаток на конец выписки (колонка остатка за ${isoToRu(a.period.end)}): ${rub(a.currentBalance)}.`
+        : `Колонки остатка нет: начальный остаток принят за ${rub(a.openingBalance)}, текущий = начальный + поступления − списания = ${rub(a.currentBalance)}.`,
+      `Начальный остаток = текущий − поступления + списания = ${rub(a.openingBalance)}.`,
+    ],
+  });
+  steps.push({
+    title: 'Статьи доходов и расходов',
+    lines: a.categories.slice(0, 6).map(c => `${c.direction === 'Поступление' ? '+' : '−'} ${c.name}: ${rub(c.total_amount)} (${ops(c.count)})`),
+  });
+  steps.push({
+    title: 'Регулярные обязательные платежи (последние 6 месяцев)',
+    lines: a.recurring.length > 0
+      ? a.recurring.map(r => `${r.category_name}: обычно ${r.typical_day}-го числа, ${rub(r.typical_amount)} в месяц, получатель — ${r.counterparty}.`)
+      : ['Зарплата, налоги и аренда не встречаются хотя бы в 3 из последних 6 месяцев — регулярных платежей не найдено.'],
+  });
+  const active = a.days.filter(d => d.inflow > 0 || d.outflow > 0).length;
+  const fromFile = a.operations.some(op => typeof op.balance === 'number');
+  steps.push({
+    title: 'Дневной ряд',
+    lines: [
+      `${a.days.length} календарных дней: ${active} с операциями и ${a.days.length - active} без операций.`,
+      fromFile ? 'Остаток на конец каждого дня взят из колонки остатка выписки.' : 'Остаток на конец каждого дня посчитан из операций.',
+    ],
+  });
+  const f = a.sim.forecast;
+  const sel = a.sim.selection;
+  const ru = (iso: string) => isoToRu(iso);
+  const sample = (list: string[]) => (list.length <= 8 ? list.map(ru).join(', ') : `${list.slice(0, 4).map(ru).join(', ')} … ${list.slice(-4).map(ru).join(', ')}`);
+  const choose: string[] = [`Прогноз на ${f.length} дней: с ${ru(f[0].date)} по ${ru(f[f.length - 1].date)}.`];
+  if (a.sim.method === 'analog_periods') {
+    choose.push(
+      `Ищем в истории 30-дневные отрезки, которые начинались за ±3 дня от ${sel.targetDay}-го числа: найдено ${sel.candidates}, из них за последний год ${sel.recent}.`,
+      sel.useRecent ? `Свежих отрезков не меньше 12 — берём только их: ${scen(a.sim.paths.length)}.` : `Свежих отрезков меньше 12 — берём все: ${scen(a.sim.paths.length)}.`,
+      `Начала отрезков: ${sample(sel.windowStarts)}.`,
+    );
+  } else if (a.sim.method === 'block_bootstrap') {
+    choose.push(`Похожих месяцев меньше 5 (${sel.candidates}): ${scen(a.sim.paths.length)} собраны из случайных недельных блоков истории (${a.days.length} дней).`);
+  } else {
+    choose.push(`История короче 14 дней: ${scen(a.sim.paths.length)} собраны из случайных дней выписки, будни и выходные отдельно.`);
+  }
+  steps.push({ title: 'Выбор похожих периодов истории', lines: choose });
+
+  const ends = a.sim.paths.map(p => a.currentBalance + p[p.length - 1]).sort((x, y) => x - y);
+  steps.push({
+    title: 'Сценарии остатка',
+    lines: [
+      `Каждый сценарий = текущий остаток ${rub(a.currentBalance)} + накопленное движение денег по дням выбранного отрезка.`,
+      `Через ${f.length} дней остаток в сценариях — от ${rub(ends[0])} до ${rub(ends[ends.length - 1])}, медиана ${rub(ends[Math.floor(ends.length / 2)])}.`,
+      `Хотя бы раз ниже нуля: ${a.sim.gapPaths} из ${a.sim.paths.length} сценариев → вероятность кассового разрыва ${a.sim.gapProbabilityPct}%.`,
+    ],
+  });
+
+  const argMin = (pick: (p: ForecastPoint) => number) => f.reduce((best, p, i) => (pick(p) < pick(f[best]) ? i : best), 0);
+  const firstNeg = f.findIndex(p => p.balance_p10 < 0);
+  const keyDays = [...new Set([0, argMin(p => p.balance_p50), ...(firstNeg >= 0 ? [firstNeg] : []), argMin(p => p.balance_p10), f.length - 1])].sort((x, y) => x - y);
+  steps.push({
+    title: 'Прогноз по дням: P10 / P50 / P90',
+    lines: [
+      'На каждый день сценарии сортируются: P10 — в 10% сценариев остаток ниже, P50 — медиана, P90 — в 10% выше.',
+      ...keyDays.map(i => `${ru(f[i].date)}: P10 ${rub(f[i].balance_p10)}, P50 ${rub(f[i].balance_p50)}, P90 ${rub(f[i].balance_p90)}; ниже нуля — ${f[i].gap_probability_pct}% сценариев.`),
+    ],
+  });
+  steps.push({
+    title: 'Предупреждения о разрыве',
+    lines: [
+      'День рискованный, если в нём не меньше 10% сценариев ниже нуля или медиана P50 ниже нуля; подряд идущие дни — один эпизод.',
+      ...(a.alerts.length > 0
+        ? a.alerts.map(al => `${al.date}: ${SEVERITY_RU[al.severity] ?? al.severity} — до ${al.probability_pct}% сценариев ниже нуля, нехватка ${rub(al.deficit_rub)} (худший P10 ${rub(al.balance_p10)}).`)
+        : ['Рискованных дней нет.']),
+    ],
+  });
+  steps.push({
+    title: 'Замечания по истории',
+    lines: a.insights.length > 0 ? a.insights.map(i => `${SEVERITY_RU[i.severity]}: ${i.title}`) : ['Замечаний нет.'],
+  });
+  steps.push({
+    title: 'Статус',
+    lines: [
+      `Вероятность разрыва ${a.sim.gapProbabilityPct}%, минимальный P50 ${rub(a.minP50)}, минимальный P10 ${rub(a.minP10)} → «${a.status.label}».`,
+      'Правило: вероятность от 50% или P50 ниже нуля — критический; от 10% или P10 ниже нуля — повышенный риск; иначе стабильно.',
+    ],
+  });
+  return steps;
 }

@@ -5,6 +5,7 @@ import json
 import warnings
 warnings.filterwarnings('ignore')
 
+import numpy as np
 import pandas as pd
 
 TRAIN_PATH = 'data/raw/train.csv'
@@ -18,23 +19,25 @@ COLUMNS = [
     'payment_purpose', 'balance_eod'
 ]
 
-CATEGORY_NAMES = {
-    'IN_CUSTOMER_REVENUE': 'Выручка от покупателей (B2B/B2C)',
-    'IN_ACQUIRING': 'Торговый эквайринг и СБП',
-    'IN_ONE_OFF_ORDER': 'Крупный разовый спецзаказ',
-    'IN_OWN_TRANSFER': 'Перевод собственных средств',
-    'OUT_SUPPLIER_COGS': 'Закупка товара у поставщиков',
-    'OUT_ONE_OFF_PURCHASE': 'Закупка под разовый спецзаказ',
-    'OUT_SALARY_ADVANCE': 'Зарплата: Аванс (20-25 число)',
-    'OUT_SALARY_FINAL': 'Зарплата: Окончательный расчет (8-10 число)',
-    'OUT_TAXES_ENP': 'Налоги и взносы (ЕНП 28-го числа)',
-    'OUT_RENT': 'Аренда помещений и оборудования',
-    'OUT_LOGISTICS': 'Транспорт и логистика',
-    'OUT_OPEX_SERVICES': 'ИТ, связь, охрана, бухгалтерия',
-    'OUT_BANK_FEE': 'Комиссии банка и РКО',
-    'OUT_DIVIDENDS': 'Дивиденды собственнику',
-    'OUT_LEGAL_SHOCK': 'Штрафы / Исполнительные листы'
-}
+# The same rules as categorizeOperation in shared/statement.ts, so the slide and the site show the same
+# categories: checked in order, the first match wins, otherwise revenue / supplier payment
+OWNER_TRANSFER = r'собственн[а-яё]* средств|на личн[а-яё]* (?:сч[её]т|карт)|на сч[её]т физического лица|дивиденд|подотч[её]т|займа учредител'
+OUTFLOW_RULES = [
+    ('Выводы владельца и переводы на свои счета', OWNER_TRANSFER),
+    ('Налоги и взносы (ЕНП 28-го числа)', r'единый налоговый|налогового органа|ндфл|страхов[а-яё]* взнос|уфк по|(?:^|[^а-яё])енп(?:$|[^а-яё])|(?:^|[^а-яё])фнс(?:$|[^а-яё])'),
+    ('Зарплата: аванс', r'(?:заработн[а-яё]* плат|зарплат)[^.]*аванс|аванс[^.]*(?:заработн|зарплат|сотрудник)'),
+    ('Зарплата: окончательный расчёт', r'заработн[а-яё]* плат|зарплат|по реестру'),
+    ('Аренда помещений и оборудования', r'аренд'),
+    ('Кредиты, лизинг и проценты', r'кредит|лизинг|займ|процент[а-яё]* за пользование'),
+    ('Комиссии банка и РКО', r'комисси|ведение сч[её]та|обслуживание сч[её]та|(?:^|[^а-яё])рко(?:$|[^а-яё])'),
+    ('Штрафы и взыскания', r'исполнительн[а-яё]* лист|взыскан|пристав|штраф|(?:^|[^а-яё])пени(?:$|[^а-яё])'),
+]
+INFLOW_RULES = [
+    ('Собственные средства и займы владельца', r'собственн[а-яё]* средств|займа учредител|беспроцентного займа'),
+    ('Кредиты банка', r'выдача кредита|кредит[а-яё]* .*транш'),
+    ('Торговый эквайринг и СБП', r'эквайринг|qr-код|по картам|мерчант|(?:^|[^а-яёa-z])сбп(?:$|[^а-яёa-z])'),
+    ('Возвраты и прочие поступления', r'возврат платежа|возврат гарантийного|страхового возмещения'),
+]
 
 INDUSTRY_PATTERNS = [
     ('Общепит', r'(кафе|ресторан|кофе|бар|пицца|бургер|кухн|пекарн|фуд)'),
@@ -90,44 +93,17 @@ def load_data(path, is_test=False):
     df = df[df['company_id'].str.startswith('C')]
     return df
 
-def categorize_row(row):
-    text = (row['payment_purpose'] or '').lower()
-    name = (row['counterparty_name'] or '').lower()
-    inn = str(row['counterparty_inn'] or '')
-    amt = row['amount']
-    direction = row['direction']
-
-    if direction == 'Поступление':
-        if 'разовый заказ' in text or amt >= 15_000_000:
-            return 'IN_ONE_OFF_ORDER'
-        if 'собственных средств' in text or 'перевод со счета' in text:
-            return 'IN_OWN_TRANSFER'
-        if any(w in text for w in ['эквайринг', 'по картам', 'сбп', 'qr-код', 'мерчант', 'терминал']):
-            return 'IN_ACQUIRING'
-        return 'IN_CUSTOMER_REVENUE'
-    else:
-        if 'дивиденд' in text or 'участник общества' in name:
-            return 'OUT_DIVIDENDS'
-        if any(w in text for w in ['единый налоговый', 'енп', 'налог']) or inn == '7727406020':
-            return 'OUT_TAXES_ENP'
-        if any(w in text for w in ['заработной платы', 'зарплат', 'аванс', 'реестру №']):
-            day = row['operation_date'].day
-            if 'аванс' in text or day >= 18:
-                return 'OUT_SALARY_ADVANCE'
-            return 'OUT_SALARY_FINAL'
-        if 'аренд' in text or 'арендодатель' in name:
-            return 'OUT_RENT'
-        if any(w in text for w in ['комиссия', 'овердрафт', 'ведение счета', 'рko']) or ('банк' in name and amt < 60_000):
-            return 'OUT_BANK_FEE'
-        if any(w in text for w in ['исполнительному', 'штраф', 'взыскан', 'пристав']):
-            return 'OUT_LEGAL_SHOCK'
-        if 'разовый заказ' in text or amt >= 15_000_000:
-            return 'OUT_ONE_OFF_PURCHASE'
-        if any(w in text for w in ['транспорт', 'перевозк', 'экспедитор', 'доставк', 'платон']):
-            return 'OUT_LOGISTICS'
-        if any(w in text for w in ['связи', 'интернет', 'охран', 'бухгалтер', 'канцтовар', 'по', 'подписка', 'реклам']):
-            return 'OUT_OPEX_SERVICES'
-        return 'OUT_SUPPLIER_COGS'
+def categorize(df):
+    text = df['payment_purpose'].str.lower()
+    is_in = df['direction'] == 'Поступление'
+    names = pd.Series(np.where(is_in, 'Выручка от покупателей', 'Оплата счетов поставщикам'), index=df.index)
+    done = pd.Series(False, index=df.index)
+    for direction_mask, rules in ((is_in, INFLOW_RULES), (~is_in, OUTFLOW_RULES)):
+        for name, pattern in rules:
+            hit = direction_mask & ~done & text.str.contains(pattern, regex=True)
+            names[hit] = name
+            done |= hit
+    return names
 
 def parse_delay_days(row):
     text = row['payment_purpose'] or ''
@@ -149,8 +125,7 @@ df_all = pd.concat([df_train, df_test], ignore_index=True)
 print(f"Total rows: Train={len(df_train):,}, Test={len(df_test):,}, Total={len(df_all):,}")
 
 print("Categorizing operations and extracting delays...")
-df_all['category_code'] = df_all.apply(categorize_row, axis=1)
-df_all['category_name'] = df_all['category_code'].map(CATEGORY_NAMES)
+df_all['category_name'] = categorize(df_all)
 df_all['delay_days'] = df_all.apply(parse_delay_days, axis=1)
 
 company_texts = df_all.groupby('company_id').apply(
@@ -206,7 +181,7 @@ eda_summary = {
     'day_of_week': []
 }
 
-cat_grp = df_all.groupby(['category_code', 'direction']).agg(
+cat_grp = df_all.groupby(['category_name', 'direction']).agg(
     count=('amount', 'count'),
     total_amount=('amount', 'sum'),
     avg_amount=('amount', 'mean'),
@@ -219,8 +194,7 @@ total_out = eda_summary['overall']['total_outflow']
 for _, r in cat_grp.iterrows():
     base_sum = total_in if r['direction'] == 'Поступление' else total_out
     eda_summary['categories'].append({
-        'code': r['category_code'],
-        'name': CATEGORY_NAMES.get(r['category_code'], r['category_code']),
+        'name': r['category_name'],
         'direction': r['direction'],
         'count': int(r['count']),
         'total_amount': float(r['total_amount']),

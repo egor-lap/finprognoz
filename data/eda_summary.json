@@ -19,7 +19,114 @@
   },
   "categories": [
     {
-      "code": "IN_ACQUIRING",
+      "name": "Аренда помещений и оборудования",
+      "direction": "Списание",
+      "count": 4015,
+      "total_amount": 652036100.0,
+      "avg_amount": 162400.02,
+      "median_amount": 104000.0,
+      "share_pct": 3.13
+    },
+    {
+      "name": "Возвраты и прочие поступления",
+      "direction": "Поступление",
+      "count": 148,
+      "total_amount": 116715251.08,
+      "avg_amount": 788616.56,
+      "median_amount": 360001.12,
+      "share_pct": 0.56
+    },
+    {
+      "name": "Выводы владельца и переводы на свои счета",
+      "direction": "Списание",
+      "count": 2703,
+      "total_amount": 3084405300.0,
+      "avg_amount": 1141104.44,
+      "median_amount": 370000.0,
+      "share_pct": 14.81
+    },
+    {
+      "name": "Выручка от покупателей",
+      "direction": "Поступление",
+      "count": 48574,
+      "total_amount": 16745497331.99,
+      "avg_amount": 344741.99,
+      "median_amount": 117000.0,
+      "share_pct": 79.63
+    },
+    {
+      "name": "Зарплата: аванс",
+      "direction": "Списание",
+      "count": 4603,
+      "total_amount": 944207442.77,
+      "avg_amount": 205128.71,
+      "median_amount": 85551.35,
+      "share_pct": 4.53
+    },
+    {
+      "name": "Зарплата: окончательный расчёт",
+      "direction": "Списание",
+      "count": 4614,
+      "total_amount": 1458983055.48,
+      "avg_amount": 316207.86,
+      "median_amount": 124512.11,
+      "share_pct": 7.01
+    },
+    {
+      "name": "Комиссии банка и РКО",
+      "direction": "Списание",
+      "count": 2632,
+      "total_amount": 4049180.0,
+      "avg_amount": 1538.44,
+      "median_amount": 1490.0,
+      "share_pct": 0.02
+    },
+    {
+      "name": "Кредиты банка",
+      "direction": "Поступление",
+      "count": 37,
+      "total_amount": 120550000.0,
+      "avg_amount": 3258108.11,
+      "median_amount": 1250000.0,
+      "share_pct": 0.57
+    },
+    {
+      "name": "Кредиты, лизинг и проценты",
+      "direction": "Списание",
+      "count": 854,
+      "total_amount": 284821914.85,
+      "avg_amount": 333515.12,
+      "median_amount": 151800.0,
+      "share_pct": 1.37
+    },
+    {
+      "name": "Налоги и взносы (ЕНП 28-го числа)",
+      "direction": "Списание",
+      "count": 3924,
+      "total_amount": 1878592196.4,
+      "avg_amount": 478744.19,
+      "median_amount": 213574.5,
+      "share_pct": 9.02
+    },
+    {
+      "name": "Оплата счетов поставщикам",
+      "direction": "Списание",
+      "count": 54910,
+      "total_amount": 12444656407.38,
+      "avg_amount": 226637.34,
+      "median_amount": 39536.24,
+      "share_pct": 59.76
+    },
+    {
+      "name": "Собственные средства и займы владельца",
+      "direction": "Поступление",
+      "count": 496,
+      "total_amount": 910250000.0,
+      "avg_amount": 1835181.45,
+      "median_amount": 1050000.0,
+      "share_pct": 4.33
+    },
+    {
       "name": "Торговый эквайринг и СБП",
       "direction": "Поступление",
       "count": 94883,
@@ -29,144 +136,13 @@
       "share_pct": 14.91
     },
     {
-      "code": "IN_CUSTOMER_REVENUE",
-      "name": "Выручка от покупателей (B2B/B2C)",
-      "direction": "Поступление",
-      "count": 48930,
-      "total_amount": 16140634976.87,
-      "avg_amount": 329871.96,
-      "median_amount": 118348.63,
-      "share_pct": 76.76
-    },
-    {
-      "code": "IN_ONE_OFF_ORDER",
-      "name": "Крупный разовый спецзаказ",
-      "direction": "Поступление",
-      "count": 64,
-      "total_amount": 1356277606.2,
-      "avg_amount": 21191837.6,
-      "median_amount": 17970798.13,
-      "share_pct": 6.45
-    },
-    {
-      "code": "IN_OWN_TRANSFER",
-      "name": "Перевод собственных средств",
-      "direction": "Поступление",
-      "count": 261,
-      "total_amount": 396100000.0,
-      "avg_amount": 1517624.52,
-      "median_amount": 950000.0,
-      "share_pct": 1.88
-    },
-    {
-      "code": "OUT_BANK_FEE",
-      "name": "Комиссии банка и РКО",
-      "direction": "Списание",
-      "count": 2836,
-      "total_amount": 8413309.86,
-      "avg_amount": 2966.61,
-      "median_amount": 1490.0,
-      "share_pct": 0.04
-    },
-    {
-      "code": "OUT_DIVIDENDS",
-      "name": "Дивиденды собственнику",
-      "direction": "Списание",
-      "count": 299,
-      "total_amount": 897065700.0,
-      "avg_amount": 3000219.73,
-      "median_amount": 1470300.0,
-      "share_pct": 4.31
-    },
-    {
-      "code": "OUT_LEGAL_SHOCK",
-      "name": "Штрафы / Исполнительные листы",
+      "name": "Штрафы и взыскания",
       "direction": "Списание",
       "count": 27,
       "total_amount": 71789800.0,
       "avg_amount": 2658881.48,
       "median_amount": 1222800.0,
       "share_pct": 0.34
-    },
-    {
-      "code": "OUT_LOGISTICS",
-      "name": "Транспорт и логистика",
-      "direction": "Списание",
-      "count": 1076,
-      "total_amount": 249575287.9,
-      "avg_amount": 231947.29,
-      "median_amount": 121254.54,
-      "share_pct": 1.2
-    },
-    {
-      "code": "OUT_ONE_OFF_PURCHASE",
-      "name": "Закупка под разовый спецзаказ",
-      "direction": "Списание",
-      "count": 69,
-      "total_amount": 1338817364.24,
-      "avg_amount": 19403150.21,
-      "median_amount": 18450000.0,
-      "share_pct": 6.43
-    },
-    {
-      "code": "OUT_OPEX_SERVICES",
-      "name": "ИТ, связь, охрана, бухгалтерия",
-      "direction": "Списание",
-      "count": 50723,
-      "total_amount": 10702719375.7,
-      "avg_amount": 211003.28,
-      "median_amount": 38996.03,
-      "share_pct": 51.4
-    },
-    {
-      "code": "OUT_RENT",
-      "name": "Аренда помещений и оборудования",
-      "direction": "Списание",
-      "count": 3683,
-      "total_amount": 549467400.0,
-      "avg_amount": 149190.17,
-      "median_amount": 92000.0,
-      "share_pct": 2.64
-    },
-    {
-      "code": "OUT_SALARY_ADVANCE",
-      "name": "Зарплата: Аванс (20-25 число)",
-      "direction": "Списание",
-      "count": 5279,
-      "total_amount": 1414210330.28,
-      "avg_amount": 267893.6,
-      "median_amount": 121400.0,
-      "share_pct": 6.79
-    },
-    {
-      "code": "OUT_SALARY_FINAL",
-      "name": "Зарплата: Окончательный расчет (8-10 число)",
-      "direction": "Списание",
-      "count": 2028,
-      "total_amount": 925777588.34,
-      "avg_amount": 456497.82,
-      "median_amount": 303617.74,
-      "share_pct": 4.45
-    },
-    {
-      "code": "OUT_SUPPLIER_COGS",
-      "name": "Закупка товара у поставщиков",
-      "direction": "Списание",
-      "count": 4130,
-      "total_amount": 1700789312.37,
-      "avg_amount": 411813.39,
-      "median_amount": 70712.68,
-      "share_pct": 8.17
-    },
-    {
-      "code": "OUT_TAXES_ENP",
-      "name": "Налоги и взносы (ЕНП 28-го числа)",
-      "direction": "Списание",
-      "count": 8132,
-      "total_amount": 2964915928.19,
-      "avg_amount": 364598.61,
-      "median_amount": 112214.67,
-      "share_pct": 14.24
     }
   ],
   "industries": [

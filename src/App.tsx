@@ -30,10 +30,13 @@ import {
   Trash2,
   HelpCircle,
   FileText,
-  AlertOctagon
+  AlertOctagon,
+  ListOrdered
 } from 'lucide-react';
-import { summarizePaths, buildGapAlerts, addDaysIso } from '../shared/cashflow.ts';
-import type { ForecastPoint, GapAlert, Insight } from '../shared/cashflow.ts';
+import { summarizePaths, buildGapAlerts, addDaysIso, forecastStatus } from '../shared/cashflow.ts';
+import type { ForecastPoint, GapAlert, Insight, CalcStep } from '../shared/cashflow.ts';
+import { parseStatementCsv, cleanCompanyOperations, explainParsing, plural } from '../shared/statement.ts';
+import type { ParsedStatement } from '../shared/statement.ts';
 import ZoomChart from './ZoomChart.tsx';
 import type { ChartMarker } from './ZoomChart.tsx';
 
@@ -80,6 +83,7 @@ interface StatementData {
   period_end?: string;
   paths?: number[][];
   model?: { method: string; scenarios: number; gap_scenarios: number; horizon_days: number };
+  calc_log?: CalcStep[];
 }
 
 // Manual single-occurrence operation
@@ -137,7 +141,7 @@ function ChartPeriod({ from, to, note }: { from?: string; to?: string; note?: st
 
 export default function App() {
   // Navigation: 3 workflow columns
-  const [activeTab, setActiveTab] = useState<'flows' | 'forecast' | 'whatif'>('flows');
+  const [activeTab, setActiveTab] = useState<'flows' | 'forecast' | 'whatif' | 'log'>('flows');
   const openRemarks = () => {
     setActiveTab('forecast');
     setTimeout(() => document.getElementById('cash-remarks')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
@@ -149,6 +153,10 @@ export default function App() {
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // The parsed file is kept: a file with several companies (like the case test.csv) can switch between them
+  const [parsedFile, setParsedFile] = useState<{ fileName: string; parsed: ParsedStatement } | null>(null);
+  const [selectedCompany, setSelectedCompany] = useState<string>('');
+  const [parseLog, setParseLog] = useState<CalcStep[]>([]);
 
   // Manual Operations State (Задачи со звездочкой 2, 4: ручной ввод разовых платежей)
   const [manualOperations, setManualOperations] = useState<ManualOperation[]>([]);
@@ -224,151 +232,44 @@ export default function App() {
     }
   };
 
-  // CSV Statement Parser & Format Validator
+  // CSV statement: parsed and checked by shared/statement.ts, the same code the scripts use
   const processCsvContent = async (text: string, fileName: string) => {
-    const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0 && !l.trim().startsWith('#'));
-    if (lines.length < 2) {
+    const parsed = parseStatementCsv(text);
+    if (parsed.missing.length > 0 || parsed.operations.length === 0) {
       setFormatError({
         isOpen: true,
         fileName,
-        detectedHeaders: [],
-        missingRequired: ['operation_date', 'amount', 'direction', 'balance_eod'],
-        rawPreview: lines.slice(0, 3).join('\n')
+        detectedHeaders: parsed.headers,
+        missingRequired: parsed.missing.length > 0 ? parsed.missing : ['Строки с данными не содержат распознаваемых значений'],
+        rawPreview: text.split(/\r?\n/).slice(0, 4).join('\n')
       });
       return;
     }
+    setParsedFile({ fileName, parsed });
+    await analyzeCompany(parsed, fileName, parsed.companies[0]);
+  };
 
-    // Determine separator (; , or \t)
-    const headerLine = lines[0];
-    const sep = headerLine.includes(';') ? ';' : (headerLine.includes('\t') ? '\t' : ',');
-    const headers = headerLine.split(sep).map(h => h.trim().toLowerCase().replace(/["']/g, ''));
-
-    // Required column mappings
-    const dateIdx = headers.findIndex(h => h.includes('date') || h.includes('дата') || h.includes('день'));
-    const amountIdx = headers.findIndex(h => h.includes('amount') || h.includes('сумма') || h.includes('rub') || h.includes('руб'));
-    const directionIdx = headers.findIndex(h => h.includes('direction') || h.includes('направление') || h.includes('тип') || h.includes('type') || h.includes('credit') || h.includes('debit'));
-    const partyIdx = headers.findIndex(h => h.includes('counterparty') || h.includes('контрагент') || h.includes('партнер') || h.includes('получатель') || h.includes('плательщик'));
-    const purposeIdx = headers.findIndex(h => h.includes('purpose') || h.includes('назначение') || h.includes('категория') || h.includes('описание'));
-    const balanceIdx = headers.findIndex(h => h.includes('balance') || h.includes('остаток') || h.includes('сальдо'));
-
-    // Validation check: mandatory fields
-    const missing: string[] = [];
-    if (dateIdx < 0) missing.push('operation_date (дата операции)');
-    if (amountIdx < 0) missing.push('amount (сумма)');
-    if (directionIdx < 0) missing.push('direction (направление: Поступление/Списание)');
-
-    if (missing.length > 0) {
-      setFormatError({
-        isOpen: true,
-        fileName,
-        detectedHeaders: headers,
-        missingRequired: missing,
-        rawPreview: lines.slice(0, 4).join('\n')
-      });
-      return;
-    }
-
-    // Parse valid rows
-    const operations: Array<any> = [];
-    // balance_eod of the latest operation date = closing balance of the statement
-    let closingBalance: number | undefined;
-    let closingBalanceDate = '';
-    let skippedRows = 0;
-
-    for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(sep).map(c => c.trim().replace(/^["']|["']$/g, ''));
-      if (cols.length < 2) continue;
-
-      const dRaw = (cols[dateIdx] || '').trim();
-      // Support DD.MM.YYYY and YYYY-MM-DD; rows with an unparseable date are skipped
-      let dIso = '';
-      const isoMatch = dRaw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-      const ruMatch = dRaw.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-      if (isoMatch) {
-        dIso = `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
-      } else if (ruMatch) {
-        dIso = `${ruMatch[3]}-${ruMatch[2].padStart(2, '0')}-${ruMatch[1].padStart(2, '0')}`;
-      }
-      const dCheck = new Date(dIso + 'T00:00:00Z');
-      if (!dIso || isNaN(dCheck.getTime()) || dCheck.toISOString().slice(0, 10) !== dIso) {
-        skippedRows++;
-        continue;
-      }
-
-      const amtRaw = (cols[amountIdx] || '').replace(/\s/g, '').replace(',', '.');
-      const amtVal = parseFloat(amtRaw);
-      if (!amtRaw || !Number.isFinite(amtVal)) {
-        skippedRows++;
-        continue;
-      }
-      const dirVal = (cols[directionIdx] || '').toLowerCase();
-      let isCredit = true;
-      if (dirVal.includes('списан') || dirVal.includes('расход') || dirVal.includes('debit') || dirVal.includes('дебет') || amtVal < 0) {
-        isCredit = false;
-      } else if (dirVal.includes('поступлен') || dirVal.includes('credit') || dirVal.includes('кредит') || dirVal.includes('приход')) {
-        isCredit = true;
-      } else {
-        isCredit = amtVal >= 0;
-      }
-      const amt = Math.abs(amtVal);
-
-      const party = partyIdx >= 0 && cols[partyIdx] ? cols[partyIdx] : (isCredit ? 'Покупатель продукции' : 'Поставщик услуг');
-      const purp = purposeIdx >= 0 && cols[purposeIdx] ? cols[purposeIdx] : (isCredit ? 'Выручка от реализации' : 'Оплата счетов');
-
-      if (balanceIdx >= 0 && cols[balanceIdx]) {
-        const b = parseFloat(cols[balanceIdx].replace(/\s/g, '').replace(',', '.'));
-        if (!isNaN(b) && dIso >= closingBalanceDate) {
-          closingBalance = b;
-          closingBalanceDate = dIso;
-        }
-      }
-
-      let category = isCredit ? 'Выручка от покупателей' : 'Оплата счетов поставщикам';
-      const pLow = purp.toLowerCase();
-      if (pLow.includes('зарплат') || pLow.includes('аванс') || pLow.includes('фот') || pLow.includes('сотрудник')) {
-        category = pLow.includes('аванс') ? 'Зарплата: Аванс (20-25 число)' : 'Зарплата: Окончательный расчет (8-10 число)';
-      } else if (pLow.includes('налог') || pLow.includes('енп') || pLow.includes('фнс') || pLow.includes('страхов')) {
-        category = 'Налоги и взносы (ЕНП 28-го числа)';
-      } else if (pLow.includes('аренд')) {
-        category = 'Аренда помещений и оборудования';
-      } else if (pLow.includes('эквайринг') || pLow.includes('сбп') || pLow.includes('карта')) {
-        category = 'Торговый эквайринг и СБП';
-      } else if (pLow.includes('комисси') || pLow.includes('рко') || pLow.includes('банк')) {
-        category = 'Комиссии банка и РКО';
-      }
-
-      operations.push({
-        date: dIso,
-        amount: amt,
-        type: isCredit ? 'credit' : 'debit',
-        direction: isCredit ? 'Поступление' : 'Списание',
-        counterparty: party,
-        category,
-        purpose: purp
-      });
-    }
-
-    if (operations.length === 0) {
-      setFormatError({
-        isOpen: true,
-        fileName,
-        detectedHeaders: headers,
-        missingRequired: ['Строки с данными не содержат распознаваемых значений'],
-        rawPreview: lines.slice(0, 4).join('\n')
-      });
-      return;
-    }
-
-    // Call server analysis model
-    const compName = fileName.replace(/\.[^/.]+$/, '').toUpperCase();
+  // Sends one company of the parsed file to the server model
+  const analyzeCompany = async (parsed: ParsedStatement, fileName: string, company: string) => {
+    const clean = cleanCompanyOperations(parsed.operations.filter(op => op.company === company));
+    const compName = company || fileName.replace(/\.[^/.]+$/, '').toUpperCase();
     const res = await fetch('/api/analyze-statement', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         companyName: compName,
-        operations,
         // Without a balance column the opening balance is taken as 0
-        closingBalance
+        closingBalance: clean.closingBalance ?? undefined,
+        operations: clean.operations.map(op => ({
+          date: op.date,
+          amount: op.amount,
+          type: op.isCredit ? 'credit' : 'debit',
+          direction: op.isCredit ? 'Поступление' : 'Списание',
+          counterparty: op.counterparty,
+          category: op.category,
+          purpose: op.purpose,
+          balance: op.balance
+        }))
       })
     });
 
@@ -380,13 +281,32 @@ export default function App() {
     const analyzed = await res.json();
     setStatementData(analyzed);
     setStatementFileName(fileName);
+    setSelectedCompany(company);
+    setParseLog(explainParsing(fileName, parsed, compName, clean));
     const notes: string[] = [];
-    if (skippedRows > 0) notes.push(`пропущено строк с некорректной датой или суммой: ${skippedRows}`);
-    if (closingBalance === undefined) notes.push('в выписке нет остатка на конец дня, входящий остаток принят за 0 ₽');
+    if (parsed.skipped > 0) notes.push(`пропущено строк с некорректной датой или суммой: ${parsed.skipped}`);
+    if (clean.closingBalance === null) notes.push('в выписке нет остатка на конец дня, входящий остаток принят за 0 ₽');
+    if (clean.duplicatesRemoved > 0) notes.push(`удалено повторов строк: ${clean.duplicatesRemoved}`);
+    const n = parsed.companies.length;
+    const many = n > 1 ? ` В файле ${n} ${plural(n, 'компания', 'компании', 'компаний')}: другую можно выбрать в строке статуса.` : '';
     setUploadFeedback(
-      `Успешно обработано: ${operations.length} операций компании «${compName}». Базовый прогноз построен.` +
+      `Успешно обработано: ${clean.operations.length} ${plural(clean.operations.length, 'операция', 'операции', 'операций')} компании «${compName}». Базовый прогноз построен.${many}` +
       (notes.length > 0 ? ` Внимание: ${notes.join('; ')}.` : '')
     );
+  };
+
+  const switchCompany = async (company: string) => {
+    if (!parsedFile) return;
+    setIsUploading(true);
+    // Planned operations belong to the previous company
+    setManualOperations([]);
+    try {
+      await analyzeCompany(parsedFile.parsed, parsedFile.fileName, company);
+    } catch (err: any) {
+      setUploadFeedback(`Ошибка обработки: ${err.message || 'не удалось построить прогноз'}`);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   // Upload handler from file input
@@ -441,6 +361,9 @@ export default function App() {
   const clearAllData = () => {
     setStatementData(null);
     setStatementFileName(null);
+    setParsedFile(null);
+    setSelectedCompany('');
+    setParseLog([]);
     setManualOperations([]);
     setUploadFeedback(null);
   };
@@ -591,15 +514,7 @@ export default function App() {
     const remarks = (statementData?.insights ?? []).filter(i => i.severity !== 'INFO').length;
     const criticalRemarks = (statementData?.insights ?? []).some(i => i.severity === 'CRITICAL');
 
-    let riskLevel: 'CRITICAL' | 'WARNING' | 'STABLE' = 'STABLE';
-    let statusLabel = 'Стабильное состояние (В норме)';
-    if (maxGapProb >= 50 || minP50 < safetyBuffer) {
-      riskLevel = 'CRITICAL';
-      statusLabel = 'Критический кассовый разрыв';
-    } else if (maxGapProb >= 10 || minP10 < safetyBuffer) {
-      riskLevel = 'WARNING';
-      statusLabel = 'Повышенный риск кассового разрыва';
-    }
+    const { level: riskLevel, label: statusLabel } = forecastStatus(maxGapProb, minP50, minP10, safetyBuffer);
 
     const t1 = performance.now();
     const elapsed = Math.round((t1 - t0) * 10) / 10;
@@ -635,6 +550,10 @@ export default function App() {
   ]);
 
   const hasData = Boolean(statementData || manualOperations.length > 0);
+  // Insights and the calculation log describe the base forecast; these change it in the browser
+  const scenarioActive =
+    manualOperations.length > 0 || whatIfDelayDays > 0 || whatIfRevenueFactor !== 100 ||
+    whatIfPostponeSupplierDays > 0 || whatIfOneOffExpense > 0 || safetyBuffer > 0;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
@@ -723,13 +642,31 @@ export default function App() {
               <span className="text-slate-400 font-medium">Статус данных:</span>
 
               {statementData ? (
-                <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/30 px-2.5 py-1 rounded-md text-indigo-300 font-medium">
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-400" />
-                  <span>{statementFileName || statementData.company_id}</span>
-                  <span className="text-slate-400 text-[11px]">
-                    ({statementData.total_operations || 0} оп., сальдо: {formatExactRub(statementData.current_balance)})
-                  </span>
-                </div>
+                <>
+                  <div className="flex items-center gap-2 bg-indigo-500/10 border border-indigo-500/30 px-2.5 py-1 rounded-md text-indigo-300 font-medium">
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>{statementFileName || statementData.company_id}</span>
+                    <span className="text-slate-400 text-[11px]">
+                      ({statementData.total_operations || 0} оп., сальдо: {formatExactRub(statementData.current_balance)})
+                    </span>
+                  </div>
+                  {parsedFile && parsedFile.parsed.companies.length > 1 && (
+                    <label className="flex items-center gap-1.5 text-slate-400">
+                      Компания:
+                      <select
+                        value={selectedCompany}
+                        onChange={e => switchCompany(e.target.value)}
+                        disabled={isUploading}
+                        className="bg-slate-800 border border-slate-700 rounded-md px-2 py-0.5 text-slate-100 text-xs font-mono cursor-pointer"
+                      >
+                        {parsedFile.parsed.companies.map(c => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                      <span className="text-[11px]">из {parsedFile.parsed.companies.length}</span>
+                    </label>
+                  )}
+                </>
               ) : manualOperations.length > 0 ? (
                 <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-md text-emerald-300 font-medium">
                   <PlusCircle className="w-3.5 h-3.5 text-emerald-400" />
@@ -822,6 +759,17 @@ export default function App() {
           >
             <Sliders className="w-4 h-4" />
             3. Симулятор «Что если» (Стресс-тест)
+          </button>
+          <button
+            onClick={() => setActiveTab('log')}
+            className={`px-4 py-2.5 text-xs sm:text-sm font-medium border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
+              activeTab === 'log'
+                ? 'border-indigo-500 text-indigo-400 bg-indigo-500/5'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+            }`}
+          >
+            <ListOrdered className="w-4 h-4" />
+            4. Журнал расчёта
           </button>
         </div>
       </header>
@@ -1335,7 +1283,7 @@ export default function App() {
                       {summaryStats.remarks > 0 && <RemarksBadge count={summaryStats.remarks} critical={summaryStats.criticalRemarks} onOpen={openRemarks} />}
                     </div>
                     <p className="text-xs text-slate-300 max-w-3xl leading-relaxed">
-                      Квантильный прогноз на 30 дней вперед с учетом периодических обязательств (ЕНП 28-го, аванс 25-го, расчет 10-го)
+                      Квантильный прогноз на 30 дней вперед с учетом регулярных платежей из выписки (зарплата, налоги, аренда)
                       и введенных разовых операций.
                       {statementData?.model && (
                         statementData.model.method === 'analog_periods'
@@ -1504,7 +1452,7 @@ export default function App() {
                             {/* Risk Probability & Shortfall metrics */}
                             <div className="flex items-center gap-4 text-xs">
                               <div>
-                                <span className="text-slate-400">Вероятность: </span>
+                                <span className="text-slate-400" title="Наибольшая доля сценариев ниже нуля в один из дней этого периода; вероятность за все 30 дней — в шапке прогноза">Пик вероятности в период: </span>
                                 <strong className="font-mono text-rose-400 text-sm font-bold">
                                   {alert.probability_pct}%
                                 </strong>
@@ -1559,6 +1507,11 @@ export default function App() {
                         <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
                         Диагностика ликвидности и рекомендации
                       </div>
+                      {scenarioActive && (
+                        <p className="text-[11px] text-slate-500">
+                          Замечания посчитаны по истории выписки и базовому прогнозу — без ручных операций и сценария «что если».
+                        </p>
+                      )}
                       {statementData.insights.map((ins, idx) => (
                         <div
                           key={idx}
@@ -1600,6 +1553,47 @@ export default function App() {
             {/* ========================================================================= */}
             {/* TAB 3: WHAT-IF SIMULATOR */}
             {/* ========================================================================= */}
+            {activeTab === 'log' && (
+              <div className="space-y-4 animate-fadeIn">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-2">
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <ListOrdered className="w-5 h-5 text-indigo-400" />
+                    Журнал расчёта прогноза
+                  </h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Каждый шаг — то, что сервис посчитал для этой выписки, с реальными числами. Такой же журнал для всех компаний
+                    файла и метрики качества пишет команда <code className="text-indigo-300">npm run evaluate -- файл.csv</code>.
+                  </p>
+                  {scenarioActive && (
+                    <p className="text-xs text-amber-300">
+                      Журнал описывает базовый прогноз: ручные операции и сценарий «что если» применяются поверх него в браузере.
+                    </p>
+                  )}
+                </div>
+                {statementData ? (
+                  <ol className="space-y-3">
+                    {[...parseLog, ...(statementData.calc_log ?? [])].map((step, i) => (
+                      <li key={i} className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex gap-4">
+                        <span className="shrink-0 w-7 h-7 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center">
+                          {i + 1}
+                        </span>
+                        <div className="space-y-1 min-w-0">
+                          <div className="text-sm font-semibold text-white">{step.title}</div>
+                          {step.lines.map((line, k) => (
+                            <p key={k} className="text-xs text-slate-300 leading-relaxed">{line}</p>
+                          ))}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-xs text-slate-400">
+                    Журнал появится после загрузки выписки: в ручном режиме прогноз строится только по введённым операциям.
+                  </div>
+                )}
+              </div>
+            )}
+
             {activeTab === 'whatif' && (
               <div className="space-y-6 animate-fadeIn">
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
