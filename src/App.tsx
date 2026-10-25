@@ -30,12 +30,11 @@ import {
   Trash2,
   HelpCircle,
   FileText,
-  AlertOctagon,
-  ListOrdered
+  AlertOctagon
 } from 'lucide-react';
 import { summarizePaths, buildGapAlerts, addDaysIso, forecastStatus } from '../shared/cashflow.ts';
-import type { ForecastPoint, GapAlert, Insight, CalcStep } from '../shared/cashflow.ts';
-import { parseStatementCsv, cleanCompanyOperations, explainParsing, plural } from '../shared/statement.ts';
+import type { ForecastPoint, GapAlert, Insight } from '../shared/cashflow.ts';
+import { parseStatementCsv, cleanCompanyOperations, plural } from '../shared/statement.ts';
 import type { ParsedStatement } from '../shared/statement.ts';
 import ZoomChart from './ZoomChart.tsx';
 import type { ChartMarker } from './ZoomChart.tsx';
@@ -85,7 +84,6 @@ interface StatementData {
   p50_shift?: number[];
   calm_year?: boolean;
   model?: { method: string; scenarios: number; gap_scenarios: number; horizon_days: number };
-  calc_log?: CalcStep[];
 }
 
 // Manual single-occurrence operation
@@ -143,7 +141,7 @@ function ChartPeriod({ from, to, note }: { from?: string; to?: string; note?: st
 
 export default function App() {
   // Navigation: 3 workflow columns
-  const [activeTab, setActiveTab] = useState<'flows' | 'forecast' | 'whatif' | 'log'>('flows');
+  const [activeTab, setActiveTab] = useState<'flows' | 'forecast' | 'whatif'>('flows');
   const openRemarks = () => {
     setActiveTab('forecast');
     setTimeout(() => document.getElementById('cash-remarks')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
@@ -158,7 +156,6 @@ export default function App() {
   // The parsed file is kept: a file with several companies (like the case test.csv) can switch between them
   const [parsedFile, setParsedFile] = useState<{ fileName: string; parsed: ParsedStatement } | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<string>('');
-  const [parseLog, setParseLog] = useState<CalcStep[]>([]);
 
   // Manual Operations State (Задачи со звездочкой 2, 4: ручной ввод разовых платежей)
   const [manualOperations, setManualOperations] = useState<ManualOperation[]>([]);
@@ -284,7 +281,6 @@ export default function App() {
     setStatementData(analyzed);
     setStatementFileName(fileName);
     setSelectedCompany(company);
-    setParseLog(explainParsing(fileName, parsed, compName, clean));
     const notes: string[] = [];
     if (parsed.skipped > 0) notes.push(`пропущено строк с некорректной датой или суммой: ${parsed.skipped}`);
     if (clean.closingBalance === null) notes.push('в выписке нет остатка на конец дня, входящий остаток принят за 0 ₽');
@@ -365,7 +361,6 @@ export default function App() {
     setStatementFileName(null);
     setParsedFile(null);
     setSelectedCompany('');
-    setParseLog([]);
     setManualOperations([]);
     setUploadFeedback(null);
   };
@@ -761,17 +756,6 @@ export default function App() {
           >
             <Sliders className="w-4 h-4" />
             3. Симулятор «Что если» (Стресс-тест)
-          </button>
-          <button
-            onClick={() => setActiveTab('log')}
-            className={`px-4 py-2.5 text-xs sm:text-sm font-medium border-b-2 transition-all flex items-center gap-2 whitespace-nowrap ${
-              activeTab === 'log'
-                ? 'border-indigo-500 text-indigo-400 bg-indigo-500/5'
-                : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
-            }`}
-          >
-            <ListOrdered className="w-4 h-4" />
-            4. Журнал расчёта
           </button>
         </div>
       </header>
@@ -1555,47 +1539,6 @@ export default function App() {
             {/* ========================================================================= */}
             {/* TAB 3: WHAT-IF SIMULATOR */}
             {/* ========================================================================= */}
-            {activeTab === 'log' && (
-              <div className="space-y-4 animate-fadeIn">
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-2">
-                  <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    <ListOrdered className="w-5 h-5 text-indigo-400" />
-                    Журнал расчёта прогноза
-                  </h3>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Каждый шаг — то, что сервис посчитал для этой выписки, с реальными числами. Такой же журнал для всех компаний
-                    файла и метрики качества пишет команда <code className="text-indigo-300">npm run evaluate -- файл.csv</code>.
-                  </p>
-                  {scenarioActive && (
-                    <p className="text-xs text-amber-300">
-                      Журнал описывает базовый прогноз: ручные операции и сценарий «что если» применяются поверх него в браузере.
-                    </p>
-                  )}
-                </div>
-                {statementData ? (
-                  <ol className="space-y-3">
-                    {[...parseLog, ...(statementData.calc_log ?? [])].map((step, i) => (
-                      <li key={i} className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex gap-4">
-                        <span className="shrink-0 w-7 h-7 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center">
-                          {i + 1}
-                        </span>
-                        <div className="space-y-1 min-w-0">
-                          <div className="text-sm font-semibold text-white">{step.title}</div>
-                          {step.lines.map((line, k) => (
-                            <p key={k} className="text-xs text-slate-300 leading-relaxed">{line}</p>
-                          ))}
-                        </div>
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-xs text-slate-400">
-                    Журнал появится после загрузки выписки: в ручном режиме прогноз строится только по введённым операциям.
-                  </div>
-                )}
-              </div>
-            )}
-
             {activeTab === 'whatif' && (
               <div className="space-y-6 animate-fadeIn">
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">

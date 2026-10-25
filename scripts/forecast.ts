@@ -5,7 +5,7 @@
 // Output in the folder:
 //   forecast_companies.csv  one row per company: balance, gap probability, status, worst P10 / P50, risky dates
 //   forecast_days.csv       the 30 forecast days of every company: P10 / P50 / P90 and the share of scenarios below zero
-//   calc_log.md             step-by-step log of every company (the same text as the «Журнал расчёта» tab of the site)
+//   calc_log.md             step-by-step log of every company: from reading the file to the status
 //   forecast.json           all of the above for the HTML report (scripts/report.ts)
 
 import fs from 'fs';
@@ -150,7 +150,7 @@ fs.writeFileSync(path.join(OUT_DIR, 'calc_log.md'), [
   '',
   `Файлы: ${files.map(f => path.basename(f)).join(', ')}; ${companiesText}. ` +
     `Критический статус — ${counts.CRITICAL}, повышенный риск — ${counts.WARNING}, стабильно — ${counts.STABLE}. ` +
-    'Для каждой компании — те же шаги, что на вкладке «Журнал расчёта» сайта.',
+    'Для каждой компании — все шаги расчёта с её числами: от чтения файла до статуса.',
   '',
   ...results.flatMap(r => [
     `## ${r.id}: ${r.statusLabel}, вероятность разрыва ${r.probability}%`,
