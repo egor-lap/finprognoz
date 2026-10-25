@@ -184,57 +184,6 @@ app.get('/api/demo-c052.csv', (_req: Request, res: Response) => {
   }
 });
 
-// HTML reports of npm run evaluate: reports/evaluate/<file name without extension>/report.html
-const REPORTS_DIR = path.join(__dirname, 'reports', 'evaluate');
-const SHARED_REPORT = 'all_operations'; // the report over all operations of the case
-const plainName = (s: string) => /^[\w.+\-]+$/.test(s) && !s.includes('..');
-const reportFile = (name: string) => path.join(REPORTS_DIR, name, 'report.html');
-
-function notBuiltPage(res: Response, title: string, file: string) {
-  res.status(404).type('html').send(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Журнал не найден</title></head>
-<body style="font:16px/1.5 system-ui,Arial,sans-serif;max-width:720px;margin:60px auto;padding:0 16px;color:#0f172a">
-<h1 style="font-size:22px">${title}</h1>
-<p>Журнал расчёта и метрики по всем компаниям файла собирает команда в папке проекта:</p>
-<pre style="background:#0f172a;color:#fff;padding:12px 16px;border-radius:8px">npm run evaluate -- путь/к/${file}.csv</pre>
-<p>Через несколько секунд обновите эту страницу.</p></body></html>`);
-}
-
-// Company ids in a report (from its forecast.json), re-read only when the report is rebuilt
-const companyCache = new Map<string, { mtime: number; ids: Set<string> }>();
-function reportCompanies(name: string): Set<string> {
-  const file = path.join(REPORTS_DIR, name, 'forecast.json');
-  try {
-    const mtime = fs.statSync(file).mtimeMs;
-    const cached = companyCache.get(name);
-    if (cached && cached.mtime === mtime) return cached.ids;
-    const ids = new Set<string>(JSON.parse(fs.readFileSync(file, 'utf8')).companies.map((c: { id: string }) => c.id));
-    companyCache.set(name, { mtime, ids });
-    return ids;
-  } catch {
-    return new Set();
-  }
-}
-
-app.get('/report/:name', (req: Request, res: Response) => {
-  const name = String(req.params.name);
-  if (!plainName(name)) return res.status(400).send('Некорректное имя отчёта');
-  if (fs.existsSync(reportFile(name))) return res.sendFile(reportFile(name));
-  notBuiltPage(res, `Отчёт для «${name}» ещё не построен`, name);
-});
-
-// «Открыть журнал»: the journal of a company by its id. The report of the uploaded file comes first,
-// then the shared report over all operations, then any other report that has this company
-app.get('/journal', (req: Request, res: Response) => {
-  const file = String(req.query.file ?? '');
-  const company = String(req.query.company ?? '');
-  if ((file && !plainName(file)) || (company && !/^[\w\-]+$/.test(company))) return res.status(400).send('Некорректный запрос');
-  const folders = fs.existsSync(REPORTS_DIR) ? fs.readdirSync(REPORTS_DIR).filter(n => plainName(n) && fs.existsSync(reportFile(n))) : [];
-  const order = [file, SHARED_REPORT, ...folders.filter(n => n !== file && n !== SHARED_REPORT)].filter(n => n && folders.includes(n));
-  const hit = company ? order.find(n => reportCompanies(n).has(company)) : order[0];
-  if (hit) return res.redirect(`/report/${encodeURIComponent(hit)}${company ? `#c-${encodeURIComponent(company)}` : ''}`);
-  notBuiltPage(res, company ? `Журнал компании ${company} ещё не построен` : 'Журнал ещё не построен', file || SHARED_REPORT);
-});
-
 // Unknown API routes get JSON 404 instead of the SPA index.html
 app.use('/api', (_req: Request, res: Response) => {
   res.status(404).json({ error: 'Not found' });
