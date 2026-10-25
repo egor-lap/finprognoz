@@ -13,7 +13,7 @@
 //     cutoff, the gap is not a prediction.
 // 95% intervals: Wilson for shares, bootstrap over companies for the main metrics.
 //
-// Run:  node scripts/backtest.ts [--out metrics.json] [statement.csv ...]   (default: data/raw/train.csv data/raw/test.csv)
+// Run:  node scripts/backtest.ts [--out metrics.json] [statement.csv ...]   (default: data/raw/train.csv + test.csv or all_operations.csv)
 // Output: reports/backtest_metrics.json or the --out path, and next to it backtest_cases.csv (every forecast
 // against the fact) and backtest_log.md (step-by-step calculation of the metrics). Charts are drawn by
 // scripts/plot_backtest.py; for a new file everything is done by: npm run evaluate -- file.csv
@@ -38,7 +38,9 @@ const outAt = args.indexOf('--out');
 const OUT_FILE = outAt >= 0 ? args[outAt + 1] : 'reports/backtest_metrics.json';
 const OUT_DIR = path.dirname(OUT_FILE);
 const inputFiles = outAt >= 0 ? args.filter((_, i) => i !== outAt && i !== outAt + 1) : args;
-const files = inputFiles.length > 0 ? inputFiles : ['data/raw/train.csv', 'data/raw/test.csv'];
+// Default: the case files split into train / test, or the single all_operations.csv
+const files = inputFiles.length > 0 ? inputFiles
+  : fs.existsSync('data/raw/train.csv') ? ['data/raw/train.csv', 'data/raw/test.csv'] : ['data/raw/all_operations.csv'];
 
 // ---------------------------------------------------------------- formatting for the log
 const rub = formatRubExact;
@@ -326,8 +328,8 @@ function scores(cm: Confusion) {
 
 // Site statuses: «Повышенный риск» = probability ≥ 10% or P10 below zero, «Критический» = ≥ 50% or P50 below zero
 const STATUS = {
-  warning: { name: '«Повышенный риск» и выше', threshold: 10, flagged: (c: Case) => c.status !== 'STABLE' },
-  critical: { name: '«Критический»', threshold: 50, flagged: (c: Case) => c.status === 'CRITICAL' },
+  warning: { name: '«Повышенный риск» и выше', threshold: 10, note: 'вероятность ≥ 10%; без минуса за год — ≥ 60%', flagged: (c: Case) => c.status !== 'STABLE' },
+  critical: { name: '«Критический»', threshold: 50, note: 'вероятность ≥ 50%; без минуса за год — ≥ 80%', flagged: (c: Case) => c.status === 'CRITICAL' },
 } as const;
 type StatusKey = keyof typeof STATUS;
 const STATUS_KEYS: StatusKey[] = ['warning', 'critical'];
@@ -615,7 +617,7 @@ const classLines = [
 for (const k of STATUS_KEYS) {
   const s = st[k];
   classLines.push(
-    `Статус ${s.name} (вероятность ≥ ${s.threshold}%): TP = ${s.tp} (предсказан и случился), FP = ${s.fp} (ложная тревога), ` +
+    `Статус ${s.name} (${STATUS[k].note}): TP = ${s.tp} (предсказан и случился), FP = ${s.fp} (ложная тревога), ` +
       `FN = ${s.fn} (пропуск), TN = ${s.tn} (спокойный прогноз и разрыва нет).`,
     `  Accuracy = (TP + TN) / всего = (${s.tp} + ${s.tn}) / ${s.n} = ${fixed(s.accuracy)}${ci(ci95[`${k}_accuracy`], f3)}.`,
     `  Precision = TP / (TP + FP) = ${s.tp} / ${s.tp + s.fp} = ${fixed(s.precision)}${ci(ci95[`${k}_precision`], f3)} — доля верных сигналов.`,
@@ -626,9 +628,9 @@ for (const k of STATUS_KEYS) {
   );
 }
 classLines.push(
-  statusMismatches.warning + statusMismatches.critical === 0
-    ? `Статус сайта во всех ${g} прогнозах совпал с порогом вероятности 10% / 50%: «P10 ниже нуля» означает, что ниже нуля уже не меньше 10% сценариев.`
-    : `Статус сайта разошёлся с порогом вероятности в ${statusMismatches.warning + statusMismatches.critical} прогнозах: матрицы выше построены по статусу сайта.`
+  'Правило статуса: от 10% вероятности или P10 ниже нуля — «Повышенный риск», от 50% или P50 ниже нуля — «Критический». ' +
+    'Если за последний год остаток компании ни разу не уходил в минус, пороги 60% и 80%: такие компании держат резерв, и провал в сценариях редко становится разрывом. ' +
+    `Из-за этого правила статус мягче порога 10% в ${statusMismatches.warning} прогнозах из ${g}.`
 );
 log.push({ title: 'Обнаружение кассового разрыва: матрица ошибок и метрики', lines: classLines });
 
@@ -708,6 +710,7 @@ const result = {
   ci95_bootstrap: ci95,
   bootstrap_rounds: BOOTSTRAP_ROUNDS,
   status_mismatches: statusMismatches,
+  threshold_note: { warning: STATUS.warning.note, critical: STATUS.critical.note },
   per_cutoff: perCutoff,
   by_source: bySource,
   log,

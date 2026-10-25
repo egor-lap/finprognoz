@@ -8,6 +8,11 @@
 import { OWNER_TRANSFER, plural } from './statement.ts';
 
 export const HORIZON_DAYS = 30;
+// Chosen on train.csv, checked on test.csv (see the backtest)
+const REVERT_SHARE = 0.3;
+const REVERT_DAYS = 60;
+const CALM_WARNING_PCT = 60; // thresholds for a company whose balance never went below zero in the last year
+const CALM_CRITICAL_PCT = 80;
 
 export interface StatementOp {
   date: string; // YYYY-MM-DD
@@ -160,6 +165,9 @@ export interface SimulationResult {
   gapProbabilityPct: number; // probability of a gap anywhere within the horizon
   // How the scenarios were chosen, for the calculation log
   selection: { targetDay: number; candidates: number; recent: number; useRecent: boolean; windowStarts: string[] };
+  // Mean reversion added to the median P50 on each day; the client adds it again when it re-runs what-if scenarios
+  p50Shift: number[];
+  usualLevel: number;
 }
 
 export function simulateForecast(days: HistoryDay[], currentBalance: number): SimulationResult {
@@ -212,6 +220,12 @@ export function simulateForecast(days: HistoryDay[], currentBalance: number): Si
     return sample.map(d => (cum += d.inflow - d.outflow));
   });
   const summary = summarizePaths(currentBalance, paths, new Array(HORIZON_DAYS).fill(0), 0);
+  // Mean reversion of the median: owners keep the balance near its usual level, so P50 is pulled
+  // REVERT_SHARE of the way (reached by day 30) toward the median end-of-day balance of the last REVERT_DAYS days
+  const recentEod = days.slice(-REVERT_DAYS).map(d => d.eod).sort((a, b) => a - b);
+  const usualLevel = recentEod[Math.floor(recentEod.length / 2)] ?? currentBalance;
+  const p50Shift = summary.p50.map((v, i) => REVERT_SHARE * Math.min(1, (i + 1) / HORIZON_DAYS) * (usualLevel - v));
+  summary.p50 = summary.p50.map((v, i) => v + p50Shift[i]);
 
   const forecast: ForecastPoint[] = futureDates.map((date, i) => {
     const mean = (pick: (d: HistoryDay) => number) => samples.reduce((s, smp) => s + pick(smp[i]), 0) / samples.length;
@@ -239,6 +253,8 @@ export function simulateForecast(days: HistoryDay[], currentBalance: number): Si
     forecast,
     gapPaths: summary.gapPaths,
     gapProbabilityPct: summary.overallGapProb,
+    p50Shift,
+    usualLevel: Math.round(usualLevel),
     selection: {
       targetDay: targetDom,
       candidates: starts.length,
@@ -251,7 +267,9 @@ export function simulateForecast(days: HistoryDay[], currentBalance: number): Si
 
 // Applies a deterministic scenario shift (cumulative, per day) to every path and recomputes quantiles.
 // Without paths (manual-only mode) a single flat path is used, so the result is deterministic.
-export function summarizePaths(currentBalance: number, paths: number[][], cumDelta: number[], buffer: number) {
+// p50Shift: the mean reversion of the base forecast (SimulationResult.p50Shift); a scenario shifts all paths
+// equally, so the same correction still applies to its median
+export function summarizePaths(currentBalance: number, paths: number[][], cumDelta: number[], buffer: number, p50Shift: number[] = []) {
   const usable = paths.length > 0 ? paths : [new Array(cumDelta.length).fill(0)];
   const n = cumDelta.length;
   const p10: number[] = [], p50: number[] = [], p90: number[] = [], gapProb: number[] = [];
@@ -265,7 +283,7 @@ export function summarizePaths(currentBalance: number, paths: number[][], cumDel
     const below = vals.filter(v => v < buffer).length;
     vals.sort((a, b) => a - b);
     p10.push(quantile(vals, 0.1));
-    p50.push(quantile(vals, 0.5));
+    p50.push(quantile(vals, 0.5) + (p50Shift[d] ?? 0));
     p90.push(quantile(vals, 0.9));
     gapProb.push(Math.round((below / usable.length) * 1000) / 10);
   }
@@ -470,7 +488,14 @@ export function detectRecurring(ops: StatementOp[]): RecurringItem[] {
 export type RiskLevel = 'CRITICAL' | 'WARNING' | 'STABLE';
 
 // Forecast status: reflects the forecast only; rule-based insights are shown next to it, not in it
-export function forecastStatus(gapProbabilityPct: number, minP50: number, minP10: number, buffer = 0): { level: RiskLevel; label: string } {
+// calmYear: the balance never went below zero in the last 365 days. Such owners keep a reserve or delay
+// payments, so a dip in the replayed scenarios rarely becomes a real gap: the warning needs a higher probability
+export function forecastStatus(gapProbabilityPct: number, minP50: number, minP10: number, buffer = 0, calmYear = false): { level: RiskLevel; label: string } {
+  if (calmYear && buffer === 0) {
+    if (gapProbabilityPct >= CALM_CRITICAL_PCT) return { level: 'CRITICAL', label: 'Критический кассовый разрыв' };
+    if (gapProbabilityPct >= CALM_WARNING_PCT) return { level: 'WARNING', label: 'Повышенный риск кассового разрыва' };
+    return { level: 'STABLE', label: 'Стабильное состояние (В норме)' };
+  }
   if (gapProbabilityPct >= 50 || minP50 < buffer) return { level: 'CRITICAL', label: 'Критический кассовый разрыв' };
   if (gapProbabilityPct >= 10 || minP10 < buffer) return { level: 'WARNING', label: 'Повышенный риск кассового разрыва' };
   return { level: 'STABLE', label: 'Стабильное состояние (В норме)' };
@@ -492,6 +517,7 @@ export interface StatementAnalysis {
   insights: Insight[];
   minP50: number;
   minP10: number;
+  calmYear: boolean; // the balance never went below zero in the last 365 days (stricter status thresholds)
   status: { level: RiskLevel; label: string };
 }
 
@@ -528,6 +554,7 @@ export function analyzeStatement(ops: StatementOp[], opts: { closingBalance?: nu
     days.push({ date: addDaysIso(last.date, 1), inflow: 0, outflow: 0, sched: 0, schedNames: [], ownerOut: 0, eod: last.eod });
   }
   const sim = simulateForecast(days, currentBalance);
+  const calmYear = !days.slice(-365).some(d => d.eod < 0);
   const minP50 = Math.min(...sim.forecast.map(f => f.balance_p50));
   const minP10 = Math.min(...sim.forecast.map(f => f.balance_p10));
   return {
@@ -546,7 +573,8 @@ export function analyzeStatement(ops: StatementOp[], opts: { closingBalance?: nu
     insights: buildInsights(days, currentBalance, sim),
     minP50,
     minP10,
-    status: forecastStatus(sim.gapProbabilityPct, minP50, minP10),
+    calmYear,
+    status: forecastStatus(sim.gapProbabilityPct, minP50, minP10, 0, calmYear),
   };
 }
 
@@ -643,7 +671,9 @@ export function explainForecast(a: StatementAnalysis): CalcStep[] {
     title: 'Статус',
     lines: [
       `Вероятность разрыва ${a.sim.gapProbabilityPct}%, минимальный P50 ${rub(a.minP50)}, минимальный P10 ${rub(a.minP10)} → «${a.status.label}».`,
-      'Правило: вероятность от 50% или P50 ниже нуля — критический; от 10% или P10 ниже нуля — повышенный риск; иначе стабильно.',
+      a.calmYear
+        ? `За последний год остаток ни разу не уходил ниже нуля — пороги строже: от ${CALM_CRITICAL_PCT}% критический, от ${CALM_WARNING_PCT}% повышенный риск, иначе стабильно. Такие компании держат резерв, и провал в сценариях редко становится разрывом.`
+        : 'Правило: вероятность от 50% или P50 ниже нуля — критический; от 10% или P10 ниже нуля — повышенный риск; иначе стабильно.',
     ],
   });
   return steps;

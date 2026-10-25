@@ -276,7 +276,7 @@ footer{color:var(--text2);font-size:13px;margin-top:40px}code{background:#f0efec
 <main>
 <section id="summary"><h2>Итог</h2>
 <div class="tiles">
-${tile('Компаний', String(companies.length))}${tile('Критический', String(counts.CRITICAL ?? 0), 'вероятность разрыва ≥ 50%')}${tile('Повышенный риск', String(counts.WARNING ?? 0), 'вероятность 10–50%')}${tile('Стабильно', String(counts.STABLE ?? 0), 'вероятность < 10%')}
+${tile('Компаний', String(companies.length))}${tile('Критический', String(counts.CRITICAL ?? 0), 'вероятность ≥ 50% (без минуса за год — ≥ 80%)')}${tile('Повышенный риск', String(counts.WARNING ?? 0), 'вероятность ≥ 10% (без минуса за год — ≥ 60%)')}${tile('Стабильно', String(counts.STABLE ?? 0), 'ниже порогов')}
 </div>
 <h3>Самые рискованные компании</h3>${endedEarly > 0 ? `<p class="note">Без ${endedEarly} ${plural(endedEarly, 'компании', 'компаний', 'компаний')}, чья выписка закончилась больше чем за неделю до конца файла: их прогноз — от последней даты их выписки (см. общую таблицу).</p>` : ''}
 <table class="grid"><thead><tr><th>Компания</th><th>Статус</th><th>Вероятность разрыва</th><th>Остаток сейчас</th><th>Худший P10</th><th>Первый рискованный день</th></tr></thead><tbody>

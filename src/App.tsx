@@ -82,6 +82,8 @@ interface StatementData {
   period_start?: string;
   period_end?: string;
   paths?: number[][];
+  p50_shift?: number[];
+  calm_year?: boolean;
   model?: { method: string; scenarios: number; gap_scenarios: number; horizon_days: number };
   calc_log?: CalcStep[];
 }
@@ -493,7 +495,7 @@ export default function App() {
     }
 
     // Quantiles and gap probability over the historical scenarios returned by the server
-    const dist = summarizePaths(baseBalance, statementData?.paths ?? [], cumDelta, safetyBuffer);
+    const dist = summarizePaths(baseBalance, statementData?.paths ?? [], cumDelta, safetyBuffer, statementData?.p50_shift ?? []);
     const updatedForecast: ForecastPoint[] = adjusted.map(({ pt, adjIn, adjOut, schedDesc }, idx) => ({
       ...pt,
       balance_p50: Math.round(dist.p50[idx]),
@@ -514,7 +516,7 @@ export default function App() {
     const remarks = (statementData?.insights ?? []).filter(i => i.severity !== 'INFO').length;
     const criticalRemarks = (statementData?.insights ?? []).some(i => i.severity === 'CRITICAL');
 
-    const { level: riskLevel, label: statusLabel } = forecastStatus(maxGapProb, minP50, minP10, safetyBuffer);
+    const { level: riskLevel, label: statusLabel } = forecastStatus(maxGapProb, minP50, minP10, safetyBuffer, statementData?.calm_year ?? false);
 
     const t1 = performance.now();
     const elapsed = Math.round((t1 - t0) * 10) / 10;

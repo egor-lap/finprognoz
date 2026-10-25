@@ -232,7 +232,8 @@ def plot_confusion():
         ax.grid(False)
         for spine in ax.spines.values():
             spine.set_visible(False)
-        ax.set_title(f"Статус {s['name']}\n(вероятность ≥ {s['threshold']}%)", fontsize=11, fontweight='bold', color=TEXT, pad=30)
+        note = m.get('threshold_note', {}).get(key, f"вероятность ≥ {s['threshold']}%")
+        ax.set_title(f"Статус {s['name']}\n({note})", fontsize=11, fontweight='bold', color=TEXT, pad=30)
         ax.text(1, -0.12, f"Accuracy {ru(s['accuracy'], 3)}  ·  Balanced accuracy {ru(s['balanced_accuracy'], 3)}\n"
                           f"Precision {ru(s['precision'], 3)}  ·  Recall {ru(s['recall'], 3)}\n"
                           f"F1 {ru(s['f1'], 3)}  ·  Specificity {ru(s['specificity'], 3)}",

@@ -163,6 +163,9 @@ app.post('/api/analyze-statement', (req: Request, res: Response) => {
       insights: a.insights,
       // Cumulative net flow of every simulated path: lets the client re-run what-if scenarios on the same distribution
       paths: a.sim.paths,
+      // Mean reversion of the median and the stricter status rule: the client applies them in what-if scenarios
+      p50_shift: a.sim.p50Shift,
+      calm_year: a.calmYear,
       model: { method: a.sim.method, scenarios: a.sim.paths.length, gap_scenarios: a.sim.gapPaths, horizon_days: f.length },
       // Step-by-step log of the calculation, shown on the «Журнал расчёта» tab
       calc_log: explainForecast(a)
