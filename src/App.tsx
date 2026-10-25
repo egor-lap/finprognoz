@@ -1280,7 +1280,20 @@ export default function App() {
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <div className="text-right">
+                    {statementFileName && (
+                      // Report of npm run evaluate for this file, opened at the selected company
+                      <a
+                        href={`/report/${encodeURIComponent(statementFileName.replace(/\.[^/.]+$/, ''))}${selectedCompany ? `#c-${encodeURIComponent(selectedCompany)}` : ''}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="HTML-отчёт npm run evaluate: журнал расчёта по шагам, прогноз по дням, метрики"
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold whitespace-nowrap transition-colors"
+                      >
+                        <FileText className="w-4 h-4" />
+                        Открыть журнал
+                      </a>
+                    )}
+                    <div className="text-right whitespace-nowrap">
                       <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">
                         Вероятность разрыва за 30 дней
                       </div>
@@ -1288,7 +1301,7 @@ export default function App() {
                         {summaryStats.maxGapProb.toFixed(1)}%
                       </div>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right whitespace-nowrap">
                       <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">
                         Мин. остаток (P50)
                       </div>

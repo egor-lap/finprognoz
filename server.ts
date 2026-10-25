@@ -184,6 +184,25 @@ app.get('/api/demo-c052.csv', (_req: Request, res: Response) => {
   }
 });
 
+// HTML report of npm run evaluate for an uploaded file: reports/evaluate/<file name without extension>/report.html
+const REPORTS_DIR = path.join(__dirname, 'reports', 'evaluate');
+app.get('/report/:name', (req: Request, res: Response) => {
+  const name = String(req.params.name);
+  const file = path.join(REPORTS_DIR, name, 'report.html');
+  // Only a plain folder name inside reports/evaluate: no path separators or '..'
+  if (!/^[\w.+\-]+$/.test(name) || name.includes('..') || path.dirname(path.dirname(file)) !== REPORTS_DIR) {
+    return res.status(400).send('Некорректное имя отчёта');
+  }
+  if (fs.existsSync(file)) return res.sendFile(file);
+  const safe = name.replace(/[^\w.+\-]/g, '');
+  res.status(404).type('html').send(`<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Отчёт не построен</title></head>
+<body style="font:16px/1.5 system-ui,Arial,sans-serif;max-width:720px;margin:60px auto;padding:0 16px;color:#0f172a">
+<h1 style="font-size:22px">Отчёт для «${safe}» ещё не построен</h1>
+<p>Журнал расчёта и метрики по всем компаниям файла собирает команда в папке проекта:</p>
+<pre style="background:#0f172a;color:#fff;padding:12px 16px;border-radius:8px">npm run evaluate -- путь/к/${safe}.csv</pre>
+<p>Через несколько секунд обновите эту страницу.</p></body></html>`);
+});
+
 // Unknown API routes get JSON 404 instead of the SPA index.html
 app.use('/api', (_req: Request, res: Response) => {
   res.status(404).json({ error: 'Not found' });
