@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import sys
 import re
 import json
 import warnings
@@ -8,8 +9,8 @@ warnings.filterwarnings('ignore')
 import numpy as np
 import pandas as pd
 
-TRAIN_PATH = 'data/raw/train.csv'
-TEST_PATH = 'data/raw/test.csv'
+# All operations of the case in one file; another file in the same format can be passed as an argument
+DATA_PATH = sys.argv[1] if len(sys.argv) > 1 else 'data/raw/all_operations.csv'
 OUT_DIR = 'data'
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -64,14 +65,16 @@ def classify_industry(text_corpus):
             return name
     return 'Услуги и торговля (СМБ)'
 
-def load_data(path, is_test=False):
-    header = None if is_test else 0
+def load_data(path):
+    # The case files come with and without a header row
+    with open(path, encoding='utf-8-sig') as f:
+        has_header = f.readline().startswith('company_id')
     df = pd.read_csv(
         path,
         sep=';',
         encoding='utf-8-sig',
-        names=COLUMNS if is_test else None,
-        header=header,
+        names=None if has_header else COLUMNS,
+        header=0 if has_header else None,
         dtype={
             'company_id': str,
             'operation_id': str,
@@ -81,16 +84,19 @@ def load_data(path, is_test=False):
         },
         low_memory=False
     )
-    df.columns = [c.replace('\ufeff', '').strip() for c in df.columns]
-    df['operation_date'] = pd.to_datetime(df['operation_date'], format='%d.%m.%Y')
+    df.columns = [c.replace('﻿', '').strip() for c in df.columns]
+    df = df.dropna(subset=['company_id'])
+    df = df[df['company_id'].str.startswith('C')]
+    # Dates as YYYY-MM-DD (all_operations.csv) or DD.MM.YYYY (train.csv / test.csv)
+    raw_dates = df['operation_date'].astype(str).str.strip()
+    iso = pd.to_datetime(raw_dates, format='%Y-%m-%d', errors='coerce')
+    df['operation_date'] = iso.fillna(pd.to_datetime(raw_dates, format='%d.%m.%Y', errors='coerce'))
+    df = df.dropna(subset=['operation_date'])
     df['amount'] = pd.to_numeric(df['amount'], errors='coerce').fillna(0.0)
     df['balance_eod'] = pd.to_numeric(df['balance_eod'], errors='coerce').fillna(0.0)
     df['counterparty_inn'] = df['counterparty_inn'].fillna('БЕЗ_ИНН').str.strip()
     df['counterparty_name'] = df['counterparty_name'].fillna('Неизвестный контрагент').str.strip()
     df['payment_purpose'] = df['payment_purpose'].fillna('').str.strip()
-    df['split'] = 'test' if is_test else 'train'
-    df = df.dropna(subset=['company_id'])
-    df = df[df['company_id'].str.startswith('C')]
     return df
 
 def categorize(df):
@@ -118,11 +124,9 @@ def parse_delay_days(row):
             pass
     return None
 
-print("=== 1. Loading Train and Test datasets ===")
-df_train = load_data(TRAIN_PATH, is_test=False)
-df_test = load_data(TEST_PATH, is_test=True)
-df_all = pd.concat([df_train, df_test], ignore_index=True)
-print(f"Total rows: Train={len(df_train):,}, Test={len(df_test):,}, Total={len(df_all):,}")
+print("=== 1. Loading the dataset ===")
+df_all = load_data(DATA_PATH)
+print(f"{DATA_PATH}: {len(df_all):,} operations, {df_all['company_id'].nunique()} companies")
 
 print("Categorizing operations and extracting delays...")
 df_all['category_name'] = categorize(df_all)
@@ -142,11 +146,8 @@ delays_series = df_all['delay_days'].dropna()
 eda_summary = {
     'overall': {
         'total_operations': len(df_all),
-        'train_operations': len(df_train),
-        'test_operations': len(df_test),
+        'source_file': os.path.basename(DATA_PATH),
         'total_companies': df_all['company_id'].nunique(),
-        'train_companies': df_train['company_id'].nunique(),
-        'test_companies': df_test['company_id'].nunique(),
         'date_min': df_all['operation_date'].min().strftime('%Y-%m-%d'),
         'date_max': df_all['operation_date'].max().strftime('%Y-%m-%d'),
         'total_inflow': float(df_all[df_all['direction'] == 'Поступление']['amount'].sum()),

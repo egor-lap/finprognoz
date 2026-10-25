@@ -1,17 +1,14 @@
 {
   "overall": {
     "total_operations": 222420,
-    "train_operations": 150358,
-    "test_operations": 72062,
+    "source_file": "all_operations.csv",
     "total_companies": 150,
-    "train_companies": 99,
-    "test_companies": 51,
     "date_min": "2024-10-01",
     "date_max": "2026-09-30",
-    "total_inflow": 21028157548.539997,
-    "total_outflow": 20823541396.879997,
-    "net_flow": 204616151.65999985,
-    "avg_operation_amount": 188165.17824575127,
+    "total_inflow": 21028157744.289997,
+    "total_outflow": 20823541407.309998,
+    "net_flow": 204616336.97999954,
+    "avg_operation_amount": 188165.17917273624,
     "median_operation_amount": 36400.0,
     "p90_operation_amount": 365400.0,
     "p99_operation_amount": 2576014.6344999983,
@@ -49,7 +46,7 @@
       "name": "Выручка от покупателей",
       "direction": "Поступление",
       "count": 48574,
-      "total_amount": 16745497331.99,
+      "total_amount": 16745497527.74,
       "avg_amount": 344741.99,
       "median_amount": 117000.0,
       "share_pct": 79.63
@@ -94,8 +91,8 @@
       "name": "Кредиты, лизинг и проценты",
       "direction": "Списание",
       "count": 854,
-      "total_amount": 284821914.85,
-      "avg_amount": 333515.12,
+      "total_amount": 284821925.28,
+      "avg_amount": 333515.13,
       "median_amount": 151800.0,
       "share_pct": 1.37
     },
@@ -149,15 +146,15 @@
     {
       "industry": "Строительство",
       "companies_count": 49,
-      "total_turnover": 9131715290.08,
+      "total_turnover": 9131715298.26,
       "avg_company_turnover": 186361537.0,
       "operations_count": 62608
     },
     {
       "industry": "Общепит",
       "companies_count": 28,
-      "total_turnover": 19838449074.13,
-      "avg_company_turnover": 708516038.0,
+      "total_turnover": 19838449272.13,
+      "avg_company_turnover": 708516045.0,
       "operations_count": 57860
     },
     {
@@ -256,51 +253,51 @@
   "seasonality": [
     {
       "month_year": "2024-10",
-      "inflow": 853757342.3000001,
+      "inflow": 853757348.6,
       "outflow": 884819643.9200001,
-      "net_flow": -31062301.620000005,
+      "net_flow": -31062295.320000052,
       "count": 9111
     },
     {
       "month_year": "2024-11",
-      "inflow": 762801338.5,
+      "inflow": 762801345.6300001,
       "outflow": 740879560.49,
-      "net_flow": 21921778.00999999,
+      "net_flow": 21921785.140000105,
       "count": 8559
     },
     {
       "month_year": "2024-12",
-      "inflow": 739825441.8599999,
+      "inflow": 739825448.79,
       "outflow": 650051870.87,
-      "net_flow": 89773570.98999989,
+      "net_flow": 89773577.91999996,
       "count": 8511
     },
     {
       "month_year": "2025-01",
-      "inflow": 687117404.72,
+      "inflow": 687117416.3,
       "outflow": 814815671.01,
-      "net_flow": -127698266.28999996,
+      "net_flow": -127698254.71000004,
       "count": 9357
     },
     {
       "month_year": "2025-02",
-      "inflow": 667235766.41,
+      "inflow": 667235772.3399999,
       "outflow": 621323158.3199999,
-      "net_flow": 45912608.09000003,
+      "net_flow": 45912614.01999998,
       "count": 8344
     },
     {
       "month_year": "2025-03",
-      "inflow": 745081411.6,
+      "inflow": 745081425.59,
       "outflow": 757018607.34,
-      "net_flow": -11937195.74000001,
+      "net_flow": -11937181.75,
       "count": 9000
     },
     {
       "month_year": "2025-04",
-      "inflow": 803985534.1200001,
-      "outflow": 856399279.46,
-      "net_flow": -52413745.339999914,
+      "inflow": 803985566.1600001,
+      "outflow": 856399287.6400001,
+      "net_flow": -52413721.48000002,
       "count": 8740
     },
     {
@@ -326,9 +323,9 @@
     },
     {
       "month_year": "2025-08",
-      "inflow": 854887867.84,
+      "inflow": 854887878.3199999,
       "outflow": 793016311.5,
-      "net_flow": 61871556.34000003,
+      "net_flow": 61871566.81999993,
       "count": 8685
     },
     {
@@ -340,16 +337,16 @@
     },
     {
       "month_year": "2025-10",
-      "inflow": 885721524.85,
+      "inflow": 885721549.92,
       "outflow": 1000472028.78,
-      "net_flow": -114750503.92999995,
+      "net_flow": -114750478.86000001,
       "count": 9362
     },
     {
       "month_year": "2025-11",
       "inflow": 802701170.6099999,
-      "outflow": 738125133.35,
-      "net_flow": 64576037.25999987,
+      "outflow": 738125135.6,
+      "net_flow": 64576035.00999987,
       "count": 8728
     },
     {
@@ -396,30 +393,30 @@
     },
     {
       "month_year": "2026-06",
-      "inflow": 1040498739.3599999,
+      "inflow": 1040498766.3999999,
       "outflow": 936754845.6099999,
-      "net_flow": 103743893.75,
+      "net_flow": 103743920.78999996,
       "count": 10290
     },
     {
       "month_year": "2026-07",
-      "inflow": 1139182315.12,
+      "inflow": 1139182350.8,
       "outflow": 1243265837.3,
-      "net_flow": -104083522.18000007,
+      "net_flow": -104083486.5,
       "count": 10235
     },
     {
       "month_year": "2026-08",
-      "inflow": 1276971804.7900002,
+      "inflow": 1276971811.1200004,
       "outflow": 1083804183.11,
-      "net_flow": 193167621.6800003,
+      "net_flow": 193167628.01000047,
       "count": 10307
     },
     {
       "month_year": "2026-09",
-      "inflow": 1156002945.4,
+      "inflow": 1156002952.65,
       "outflow": 1149309477.11,
-      "net_flow": 6693468.2900002,
+      "net_flow": 6693475.5400002,
       "count": 10322
     }
   ],
@@ -428,7 +425,7 @@
       "dow": 0,
       "day_name": "Понедельник",
       "operations_count": 87564,
-      "inflow": 7969823871.25,
+      "inflow": 7969823937.129999,
       "outflow": 7069518023.39
     },
     {
@@ -436,27 +433,27 @@
       "day_name": "Вторник",
       "operations_count": 35705,
       "inflow": 3488398493.37,
-      "outflow": 2981230762.39
+      "outflow": 2981230770.57
     },
     {
       "dow": 2,
       "day_name": "Среда",
       "operations_count": 32460,
-      "inflow": 3183481535.7299995,
+      "inflow": 3183481567.7299995,
       "outflow": 3578933375.51
     },
     {
       "dow": 3,
       "day_name": "Четверг",
       "operations_count": 32896,
-      "inflow": 3313743590.18,
+      "inflow": 3313743640.46,
       "outflow": 2570940864.3799996
     },
     {
       "dow": 4,
       "day_name": "Пятница",
       "operations_count": 32746,
-      "inflow": 2996656429.85,
+      "inflow": 2996656477.44,
       "outflow": 4479667974.559999
     },
     {
@@ -464,7 +461,7 @@
       "day_name": "Суббота",
       "operations_count": 1049,
       "inflow": 76053628.16,
-      "outflow": 143250396.65
+      "outflow": 143250398.9
     },
     {
       "dow": 6,
