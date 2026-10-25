@@ -7,7 +7,7 @@ coverage/
 .env*
 !.env.example
 
-# Сырые выписки кейса (train/test) не коммитим и не раздаём как статику
+# Сырые выписки кейса (all_operations.csv) не коммитим и не раздаём как статику
 data/raw/
 
 # Результаты npm run evaluate на чужих файлах

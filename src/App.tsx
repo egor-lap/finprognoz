@@ -153,7 +153,7 @@ export default function App() {
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadFeedback, setUploadFeedback] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // The parsed file is kept: a file with several companies (like the case test.csv) can switch between them
+  // The parsed file is kept: a file with several companies (like all_operations.csv) can switch between them
   const [parsedFile, setParsedFile] = useState<{ fileName: string; parsed: ParsedStatement } | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<string>('');
 
@@ -215,7 +215,7 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  // Quick 1-click test with real C052 demo statement
+  // One-click demo with the real C052 statement
   const loadDemoC052 = async () => {
     setIsUploading(true);
     setUploadFeedback('Загрузка эталонной выписки компании C052 (IT-услуги)...');
@@ -851,7 +851,7 @@ export default function App() {
                   className="px-3.5 py-1.5 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/40 text-indigo-200 font-semibold border border-indigo-500/40 flex items-center gap-1.5 transition-all cursor-pointer"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                  Загрузить тестовую выписку C052 (в 1 клик)
+                  Загрузить демо-выписку C052 (в 1 клик)
                 </button>
               </div>
             </div>

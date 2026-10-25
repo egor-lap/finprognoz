@@ -87,7 +87,7 @@ def load_data(path):
     df.columns = [c.replace('﻿', '').strip() for c in df.columns]
     df = df.dropna(subset=['company_id'])
     df = df[df['company_id'].str.startswith('C')]
-    # Dates as YYYY-MM-DD (all_operations.csv) or DD.MM.YYYY (train.csv / test.csv)
+    # Dates as YYYY-MM-DD (all_operations.csv) or DD.MM.YYYY (bank exports)
     raw_dates = df['operation_date'].astype(str).str.strip()
     iso = pd.to_datetime(raw_dates, format='%Y-%m-%d', errors='coerce')
     df['operation_date'] = iso.fillna(pd.to_datetime(raw_dates, format='%d.%m.%Y', errors='coerce'))

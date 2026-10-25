@@ -9,7 +9,7 @@ Plots the backtest metrics (backtest_metrics.json written by scripts/backtest.ts
   9    how often the actual balance falls inside the P10-P90 band, by horizon day
 
 Run after the backtest:
-    node scripts/backtest.ts <train.csv> <test.csv>
+    node scripts/backtest.ts [statement.csv]
     python scripts/plot_backtest.py [metrics.json] [out_dir]
 For a new file all steps are done by: npm run evaluate -- <file.csv>
 """

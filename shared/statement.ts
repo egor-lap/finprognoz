@@ -4,7 +4,7 @@
 
 import type { CalcStep } from './cashflow.ts';
 
-// Column order of the case dataset; test.csv comes without a header row in this order
+// Column order of the case dataset; a file without a header row is read in this order
 export const STANDARD_COLUMNS = ['company_id', 'operation_id', 'operation_date', 'amount', 'direction', 'counterparty_inn', 'counterparty_name', 'payment_purpose', 'balance_eod'];
 
 export interface ParsedOperation {
@@ -139,7 +139,7 @@ function findColumns(headers: string[]) {
 }
 
 export function parseStatementCsv(text: string): ParsedStatement {
-  // Lines made only of separators (train.csv has tens of thousands of them) are empty, not broken rows
+  // Lines made only of separators (the case files had tens of thousands of them) are empty, not broken rows
   const lines = text.replace(/^﻿/, '').split(/\r?\n/).filter(l => l.replace(/[;,\t"\s]/g, '').length > 0 && !l.trim().startsWith('#'));
   const empty: ParsedStatement = { operations: [], companies: [], rows: 0, skipped: 0, headerFound: false, separator: ';', headers: [], missing: [] };
   if (lines.length === 0) return { ...empty, missing: ['operation_date', 'amount', 'direction'] };

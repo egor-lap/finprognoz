@@ -8,7 +8,7 @@
 import { OWNER_TRANSFER, plural } from './statement.ts';
 
 export const HORIZON_DAYS = 30;
-// Chosen on train.csv, checked on test.csv (see the backtest)
+// Chosen on companies C001–C099 and checked on C100–C150 (see the backtest)
 const REVERT_SHARE = 0.3;
 const REVERT_DAYS = 60;
 const CALM_WARNING_PCT = 60; // thresholds for a company whose balance never went below zero in the last year

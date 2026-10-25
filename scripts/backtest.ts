@@ -13,7 +13,7 @@
 //     cutoff, the gap is not a prediction.
 // 95% intervals: Wilson for shares, bootstrap over companies for the main metrics.
 //
-// Run:  node scripts/backtest.ts [--out metrics.json] [statement.csv ...]   (default: data/raw/train.csv + test.csv or all_operations.csv)
+// Run:  node scripts/backtest.ts [--out metrics.json] [statement.csv ...]   (default: data/raw/all_operations.csv)
 // Output: reports/backtest_metrics.json or the --out path, and next to it backtest_cases.csv (every forecast
 // against the fact) and backtest_log.md (step-by-step calculation of the metrics). Charts are drawn by
 // scripts/plot_backtest.py; for a new file everything is done by: npm run evaluate -- file.csv
@@ -38,9 +38,7 @@ const outAt = args.indexOf('--out');
 const OUT_FILE = outAt >= 0 ? args[outAt + 1] : 'reports/backtest_metrics.json';
 const OUT_DIR = path.dirname(OUT_FILE);
 const inputFiles = outAt >= 0 ? args.filter((_, i) => i !== outAt && i !== outAt + 1) : args;
-// Default: the case files split into train / test, or the single all_operations.csv
-const files = inputFiles.length > 0 ? inputFiles
-  : fs.existsSync('data/raw/train.csv') ? ['data/raw/train.csv', 'data/raw/test.csv'] : ['data/raw/all_operations.csv'];
+const files = inputFiles.length > 0 ? inputFiles : ['data/raw/all_operations.csv'];
 
 // ---------------------------------------------------------------- formatting for the log
 const rub = formatRubExact;
